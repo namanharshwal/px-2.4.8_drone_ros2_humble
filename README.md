@@ -1,169 +1,225 @@
-# Autonomous F450 Drone with Pixhawk 2.4.8 & ROS 2 Humble
-### Complete Hardware & Software Engineering Master Guide, 10-Month Retrospective, & Production Repository
+# Autonomous F450 Quadcopter with Pixhawk 2.4.8 & ROS 2 Humble
+### Complete Hardware Build, Software Architecture, 10-Month Retrospective, & Production Repository
 
 [![ROS 2](https://img.shields.io/badge/ROS%202-Humble%20Hawksbill-22314E?style=flat-square&logo=ros)](https://docs.ros.org/en/humble/)
 [![PX4 Autopilot](https://img.shields.io/badge/PX4-v1.14%20(FMUv3)-0073E6?style=flat-square&logo=cplusplus)](https://px4.io/)
-[![Hardware](https://img.shields.io/badge/Hardware-Pixhawk%202.4.8%20%2B%20RPi4-brightgreen?style=flat-square)](https://www.raspberrypi.com/)
+[![Hardware](https://img.shields.io/badge/Flight%20Controller-Pixhawk%202.4.8-brightgreen?style=flat-square)](https://docs.px4.io/main/en/flight_controller/pixhawk.html)
+[![Companion](https://img.shields.io/badge/Companion%20PC-Raspberry%20Pi%204B-red?style=flat-square&logo=raspberrypi)](https://www.raspberrypi.com/)
 [![Middleware](https://img.shields.io/badge/Middleware-Micro--XRCE--DDS-orange?style=flat-square)](https://github.com/eProsima/Micro-XRCE-DDS-Agent)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue?style=flat-square)](LICENSE)
+[![Fast-DDS](https://img.shields.io/badge/DDS-eProsima%20Fast--DDS-blue?style=flat-square)](https://www.eprosima.com/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=flat-square)](LICENSE)
 
 ---
 
 > [!CAUTION]
-> ### SAFETY CRITICAL BENCH TESTING MANDATE:
-> **ALWAYS REMOVE ALL PROPELLERS BEFORE BENCH TESTING!**  
-> Nodes in this package (`commander.py`, `verify_motors.py`, `direct_sequence.py`) command direct MAVLink motor test sequences and force-arming overrides (`param2=21196.0`) with up to 30% thrust and 30° roll/pitch tilts. If propellers are attached while testing indoors or tethered, the vehicle will violently flip, causing severe physical lacerations or hardware destruction.
+> ### CRITICAL BENCH TESTING SAFETY DIRECTIVE:
+> **ALWAYS REMOVE ALL 4 PROPELLERS BEFORE RUNNING BENCH TESTS!**  
+> Nodes in this package (`commander.py`, `verify_motors.py`, and `direct_sequence.py`) command raw MAVLink actuator test overrides and force-arming sequences (`param2=21196.0`) with up to 30% throttle and 30° roll/pitch attitude tilts. If propellers are attached while testing on a bench or indoors, the drone will violently flip, causing severe physical lacerations, severed wiring, or permanent motor damage.
 
 ---
 
 ## Table of Contents
-1. [Project Overview & System Architecture](#1-project-overview--system-architecture)
-2. [Hardware Bill of Materials & Specifications](#2-hardware-bill-of-materials--specifications)
-3. [Wiring Diagrams & Electrical Interconnects](#3-wiring-diagrams--electrical-interconnects)
-4. [Raspberry Pi 4 Operating System & Environment Setup](#4-raspberry-pi-4-operating-system--environment-setup)
-5. [QGroundControl & PX4 Parameter Configuration](#5-qgroundcontrol--px4-parameter-configuration)
-6. [The 10-Month Engineering Retrospective (Failures & Breakthroughs)](#6-the-10-month-engineering-retrospective-failures--breakthroughs)
-7. [ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)](#7-ros-2-package-architecture-f450_brain--px4_msgs)
-8. [Bench Testing & Flight Verification Protocol](#8-bench-testing--flight-verification-protocol)
-9. [Intelligent Engineering Q&A Knowledge Base](#9-intelligent-engineering-qa-knowledge-base)
-10. [Repository Structure & Quick Start](#10-repository-structure--quick-start)
+1. [Project Overview & Companion Architecture](#1-project-overview--companion-architecture)
+2. [Complete Hardware Bill of Materials (BOM)](#2-complete-hardware-bill-of-materials-bom)
+3. [Physical Assembly & Mechanical Construction](#3-physical-assembly--mechanical-construction)
+4. [Electrical Wiring & Interconnect Diagrams](#4-electrical-wiring--interconnect-diagrams)
+5. [Raspberry Pi 4 Operating System & Environment Hardening](#5-raspberry-pi-4-operating-system--environment-hardening)
+6. [Micro-XRCE-DDS Middleware Architecture](#6-micro-xrce-dds-middleware-architecture)
+7. [PX4 Firmware & QGroundControl Configuration Guide](#7-px4-firmware--qgroundcontrol-configuration-guide)
+8. [The 10-Month Engineering Retrospective (Failures, Root Causes & Fixes)](#8-the-10-month-engineering-retrospective-failures-root-causes--fixes)
+9. [ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)](#9-ros-2-package-architecture-f450_brain--px4_msgs)
+10. [Bench Testing & Flight Verification Protocol](#10-bench-testing--flight-verification-protocol)
+11. [Intelligent Engineering Q&A Knowledge Base](#11-intelligent-engineering-qa-knowledge-base)
+12. [Troubleshooting Runbook](#12-troubleshooting-runbook)
+13. [Quick Start & Repository Setup](#13-quick-start--repository-setup)
 
 ---
 
-## 1. Project Overview & System Architecture
+## 1. Project Overview & Companion Architecture
 
-This repository contains the complete, unified, production-ready workspace for an **Autonomous F450 Quadcopter** powered by a **Pixhawk 2.4.8 (FMUv3)** flight controller and an onboard **Raspberry Pi 4 Model B (4GB)** companion computer. 
+This repository hosts the complete, battle-tested autonomous software and hardware implementation for an **F450 Quadcopter** managed by a **Pixhawk 2.4.8 (FMUv3)** flight controller paired with an onboard **Raspberry Pi 4 Model B (4GB)** companion computer running **Ubuntu 22.04 LTS (Jammy Jellyfish)** and **ROS 2 Humble**.
 
-The onboard companion computer communicates directly with the Pixhawk using the **eProsima Micro-XRCE-DDS** protocol running over a high-speed hardware UART serial bridge (`/dev/ttyAMA0` at 921,600 baud). High-level autonomy nodes running in **ROS 2 Humble** exchange high-frequency (50Hz) odometry, attitude, and actuator setpoints directly with the PX4 flight stack without MAVROS overhead.
+### Why Companion Computer + Direct DDS?
+Traditional autonomous drone configurations employ **MAVROS**, which serializes telemetry into MAVLink binary packets over serial, translates them to ROS topics on the companion computer, and converts them back. This introduces:
+- High CPU serialization latency on ARM Cortex processors.
+- Bandwidth throttling limiting setpoints to 10–20Hz.
+- Complex message bridging with fragile coordinate frame transforms.
+
+In contrast, modern **PX4 v1.14** features native **Micro-XRCE-DDS** client integration directly into its internal **uORB** publish-subscribe message bus. By running the lightweight **Micro-XRCE-DDS Agent** on the Raspberry Pi 4 over a high-speed UART serial bus (`/dev/ttyAMA0` at 921,600 baud), ROS 2 nodes communicate directly with the flight controller's internal topics (`/fmu/in/...` and `/fmu/out/...`) at **50Hz–100Hz** with minimal CPU overhead.
 
 ```mermaid
 flowchart TB
-    subgraph SENSORS["Sensors & Radio"]
-        RC["FlySky FS-i6 RC Transmitter<br>(2.4GHz AFHDS 2A)"] -->|PPM / IBUS| RX["FS-iA6B Receiver"]
-        GPS["U-Blox NEO-M8N GPS"] -->|I2C / UART| FC["Pixhawk 2.4.8 (FMUv3)<br>STM32F427 Cortex-M4<br>PX4 Autopilot v1.14"]
-        MAG["External Magnetometer<br>(QMC5883 / HMC5883L)"] -->|I2C| FC
-        RX --> FC
+    subgraph SENSORS["Perception & Manual Override"]
+        RC["FlySky FS-i6 Transmitter<br>(2.4GHz AFHDS 2A)"] -->|PPM / IBUS| RX["FS-iA6B Receiver"]
+        GPS["U-Blox NEO-M8N GPS"] -->|UART| FC["Pixhawk 2.4.8 Flight Controller<br>(STM32F427 Cortex-M4 168MHz)<br>PX4 Autopilot v1.14 (FMUv3)"]
+        MAG["External Compass QMC5883L<br>(Elevated on 15cm Mast)"] -->|I2C| FC
+        RX -->|RC IN Port| FC
     end
 
-    subgraph POWER["Power System"]
-        BATT["3S / 4S LiPo Battery<br>(11.1V - 14.8V)"] --> PDB["F450 Integrated PDB"]
-        PDB --> PM["Pixhawk Power Module"]
-        PM -->|5V / Current / Voltage| FC
-        PDB --> UBEC["5V / 3A UBEC"]
-        UBEC -->|USB-C 5V Isolated| RPI["Raspberry Pi 4 Model B (4GB)<br>Ubuntu 22.04 LTS (Jammy)<br>Linux aarch64"]
+    subgraph POWER["Dual-Rail Power System"]
+        LIPO["3S / 4S LiPo Battery<br>(11.1V - 14.8V)"] --> PDB["F450 Integrated PDB"]
+        PDB --> PM["Pixhawk Power Module (XT60)"]
+        PM -->|5V / Current & Voltage Sensing| FC
+        PDB --> UBEC["Dedicated 5V / 3A UBEC"]
+        UBEC -->|USB-C 5V Clean Isolated Rail| RPI["Raspberry Pi 4 Model B (4GB)<br>Ubuntu 22.04.5 LTS (Jammy aarch64)"]
     end
 
-    subgraph ACTUATORS["Propulsion (Quad-X)"]
+    subgraph PROPULSION["Quad-X Actuators"]
         FC -->|PWM MAIN 1| ESC1["ESC 1 (30A)"] --> M1["Motor 1 (Front Right CCW)"]
         FC -->|PWM MAIN 2| ESC2["ESC 2 (30A)"] --> M2["Motor 2 (Rear Left CCW)"]
         FC -->|PWM MAIN 3| ESC3["ESC 3 (30A)"] --> M3["Motor 3 (Front Left CW)"]
         FC -->|PWM MAIN 4| ESC4["ESC 4 (30A)"] --> M4["Motor 4 (Rear Right CW)"]
     end
 
-    subgraph BRIDGE["Hardware Companion Link"]
-        FC <-->|TELEM2 UART @ 921600 Baud<br>TXD/RXD Crossover| RPI
+    subgraph SERIAL_LINK["Hardware Serial Bridge"]
+        FC <-->|TELEM2 UART @ 921600 Baud<br>Pins 6 (GND), 8 (TXD), 10 (RXD)<br>Pin 1 (5V) DISCONNECTED| RPI
     end
 
-    subgraph ROS2["Companion Computer Stack (ROS 2 Humble)"]
-        AGENT["Micro-XRCE-DDS-Agent<br>(Domain ID: 42)"] <--> BRIDGE
-        AGENT <--> DDS["ROS 2 Middleware (Fast-DDS)"]
-        DDS <--> MSGS["px4_msgs (release/1.14)"]
-        MSGS <--> NODES["f450_brain Nodes:<br>• commander (Offboard Autonomy)<br>• verify_motors (4-Corner Tilt)<br>• direct_sequence (Cmd 209 Test)<br>• visualizer (NED->ENU TF2 Broadcaster)"]
+    subgraph ROS2_STACK["ROS 2 Humble Autonomous Software Stack"]
+        RPI <--> AGENT["Micro-XRCE-DDS Agent<br>(Domain ID: 42)"]
+        AGENT <--> FAST["eProsima Fast-DDS"]
+        FAST <--> MSGS["px4_msgs (v1.14 IDL Definitions)"]
+        MSGS <--> NODES["f450_brain Package Nodes:<br>• direct_sequence (MAVLink Cmd 209 Motor Test)<br>• verify_motors (4-Corner Attitude Tilt Isolation)<br>• commander (50Hz Offboard Thrust & Force Arm)<br>• visualizer (PX4 NED to ROS ENU TF2 Broadcaster)"]
     end
 ```
 
 ---
 
-## 2. Hardware Bill of Materials & Specifications
+## 2. Complete Hardware Bill of Materials (BOM)
 
-| Component | Part / Model | Purpose & Description |
+| Component | Model / Specification | Purpose & Description |
 |---|---|---|
-| **Quadcopter Frame** | DJI F450 FlameWheel Replica | 450mm diagonal wheelbase with high-strength composite arms and integrated glass-fiber PDB. |
-| **Flight Controller** | Pixhawk 2.4.8 (FMUv3) | 32-bit STM32F427 Cortex-M4 with FPU (168MHz / 256KB RAM / 2MB Flash), dual IMU, barometer. |
-| **Companion Computer** | Raspberry Pi 4 Model B (4GB RAM) | Broadcom BCM2711 quad-core Cortex-A72 @ 1.5GHz, 58GB SanDisk microSD, 4GB active swap. |
-| **Brushless Motors** | 4x 2212 920KV Brushless DC | Standard drone propulsion; rated for 3S–4S LiPo with self-tightening prop mounts. |
-| **Electronic Speed Controllers**| 4x 30A SimonK / BLHeli ESCs | High-frequency PWM input connected to Pixhawk MAIN OUT 1–4. |
-| **Propellers** | 1045 (10" diameter, 4.5" pitch) | 2x Clockwise (CW) and 2x Counter-Clockwise (CCW). *Never installed during bench tests!* |
-| **Power Distribution** | F450 Integrated PDB + Power Module | Handles up to 100A continuous; provides battery voltage and current sensing to Pixhawk. |
-| **Power Supply (Pi)** | Dedicated 5V / 3A UBEC | Buck converter stepping down LiPo voltage to clean, regulated 5V via USB-C for the Pi. |
-| **Radio Control (RC)** | FlySky FS-i6 Transmitter | 6-channel 2.4GHz AFHDS 2A digital telemetry transmitter. |
-| **RC Receiver** | FlySky FS-iA6B Receiver | 6-channel receiver connected to Pixhawk RC IN via PPM or IBUS. |
-| **GPS & Compass** | U-Blox NEO-M8N + QMC5883L | High-sensitivity GNSS module mounted on a 15cm mast to eliminate motor electromagnetic interference. |
-| **Safety Switch & Buzzer** | Pixhawk Momentary Safety Button | Dual-state safety switch with integrated red status LED and acoustic warning buzzer. |
+| **Airframe** | DJI F450 FlameWheel Replica | 450mm diagonal wheelbase; composite reinforced polyamide arms; integrated PDB on center plates. |
+| **Flight Controller** | Pixhawk 2.4.8 (FMUv3) | 32-bit STM32F427 Cortex-M4 with FPU (168MHz / 256KB RAM / 2MB Flash), dual IMU, MS5611 barometer. |
+| **Companion Computer**| Raspberry Pi 4 Model B (4GB) | Broadcom BCM2711 quad-core Cortex-A72 @ 1.5GHz; 58GB SanDisk microSD; 4GB active swap. |
+| **Motors** | 4x 2212 920KV Brushless DC | Rated for 3S–4S LiPo; 920 RPM per volt; self-tightening CW/CCW aluminum threaded prop nuts. |
+| **ESCs** | 4x 30A SimonK / BLHeli | High-frequency PWM input connected to Pixhawk MAIN OUT 1–4; capable of 40A burst. |
+| **Propellers** | 1045 (10x4.5 inch) | 2x Clockwise (CW) + 2x Counter-Clockwise (CCW). *Never installed during bench tests!* |
+| **Battery** | 3S (11.1V) / 4S (14.8V) LiPo | 2200mAh – 4500mAh 30C discharge rate with XT60 connector. |
+| **Power Distribution**| Integrated Bottom Plate PDB | Glass-fiber plate with heavy copper traces for ESC power leads and battery inputs. |
+| **Power Module** | Pixhawk PM02 (XT60) | Provides battery voltage divider (10.1:1) and current shunt (17:1) telemetry to Pixhawk. |
+| **Pi Regulator (UBEC)**| Dedicated 5V / 3A DC-DC Buck | Steps down LiPo voltage to clean, isolated 5V via USB-C to power the Raspberry Pi independently. |
+| **RC Transmitter** | FlySky FS-i6 (AFHDS 2A) | 6-channel 2.4GHz digital telemetry transmitter with dual gimbals and 4 auxiliary switches. |
+| **RC Receiver** | FlySky FS-iA6B | 6-channel receiver connected to Pixhawk RC IN via PPM or IBUS protocol. |
+| **GPS & Magnetometer**| U-Blox NEO-M8N + QMC5883L | High-precision GNSS receiver mounted on a 15cm elevated mast to isolate magnetometer from motor EMI. |
+| **Safety Switch** | Pixhawk Momentary Pushbutton | Safety switch with integrated high-brightness red LED and acoustic warning buzzer. |
 
 ---
 
-## 3. Wiring Diagrams & Electrical Interconnects
+## 3. Physical Assembly & Mechanical Construction
 
-### 3.1 Pixhawk TELEM2 to Raspberry Pi 4 GPIO Pinout
+### 3.1 Frame Assembly & Motor Orientation
+1. **Center Plate Preparation**: Solder the 4 ESC positive (Red) and negative (Black) power leads directly to the integrated copper pads on the F450 bottom plate using 60/40 rosin-core solder. Solder the main battery XT60 pigtail to the rear battery tabs. Verify there are zero solder bridges with a digital multimeter continuity test.
+2. **Arm Attachment**: Fasten the 4 composite arms (2 red for front, 2 white for rear) to the bottom plate using M2.5x6 hex screws. Apply a small drop of medium-strength blue thread-locker (Loctite 242) to every screw.
+3. **Motor Installation**: Mount the 4x 2212 920KV motors onto the arm ends using M3x8 countersunk screws. 
+   - Note the thread direction on the motor shafts: Black nuts correspond to CCW motor rotation, silver nuts correspond to CW rotation.
+4. **Top Center Plate**: Route all ESC signal cables toward the center, place the top plate, and secure with M2.5x6 screws.
+
+### 3.2 Pixhawk Flight Controller Mounting
+- Mount the Pixhawk in the exact center of gravity (CG) of the frame using **anti-vibration foam pads** (vibration damping platform).
+- Ensure the **white forward arrow** on the Pixhawk top case points strictly toward the front arms (between Motor 1 and Motor 3).
+
+### 3.3 GPS & Magnetometer Mast Installation
+- Mount the GPS mast on the rear center plate.
+- Secure the U-Blox NEO-M8N puck to the top of the 15cm mast using double-sided foam tape.
+- **Critical**: Ensure the directional arrow on the GPS puck points strictly **FORWARD**, exactly parallel to the Pixhawk flight controller arrow. An orientation mismatch will cause immediate EKF2 yaw divergence!
+
+---
+
+## 4. Electrical Wiring & Interconnect Diagrams
+
+### 4.1 Pixhawk TELEM2 to Raspberry Pi 4 GPIO Wiring
 
 > [!WARNING]
-> **DO NOT CONNECT PIN 1 (VCC 5V) BETWEEN PIXHAWK AND RASPBERRY PI!**  
-> The Raspberry Pi must be powered exclusively through its dedicated 5V/3A UBEC or USB-C supply. Connecting the 5V line between the Pixhawk and Raspberry Pi creates ground loops, back-powers the flight controller rail, and causes brownouts or hardware damage.
+> **NEVER CONNECT PIN 1 (VCC 5V) BETWEEN PIXHAWK AND RASPBERRY PI!**  
+> The Raspberry Pi must be powered exclusively via its dedicated 5V/3A UBEC or USB-C supply. Connecting the 5V line between the Pixhawk and Raspberry Pi creates ground loops, back-powers the flight controller rail, and causes brownouts or hardware damage.
 
-| Pixhawk TELEM2 Pin | Signal | Wire Color | Raspberry Pi 4 Physical Pin | Raspberry Pi Pin Name |
+| Pixhawk 2.4.8 TELEM2 Pin | Signal | Standard Wire Color | Raspberry Pi 4 Header Pin | Raspberry Pi Pin Function |
 |---|---|---|---|---|
 | **Pin 1** | VCC 5V | Red | **LEAVE DISCONNECTED** | *Do NOT connect (Taped off)* |
-| **Pin 2** | TX (Pixhawk Out) | White / Yellow | **Pin 10** | `GPIO 15 (UART0 RXD)` |
-| **Pin 3** | RX (Pixhawk In) | Black / White | **Pin 8** | `GPIO 14 (UART0 TXD)` |
+| **Pin 2** | TX (Pixhawk Out) | White / Yellow | **Pin 10 (Physical)** | `GPIO 15 (UART0 RXD)` |
+| **Pin 3** | RX (Pixhawk In) | Black / White | **Pin 8 (Physical)** | `GPIO 14 (UART0 TXD)` |
 | **Pin 4** | CTS | Gray | **LEAVE DISCONNECTED** | *Unused in 2-wire serial* |
 | **Pin 5** | RTS | Orange | **LEAVE DISCONNECTED** | *Unused in 2-wire serial* |
-| **Pin 6** | GND | Black | **Pin 6** | `GND (Ground Reference)` |
+| **Pin 6** | GND | Black | **Pin 6 (Physical)** | `GND (Common Ground)` |
 
-### 3.2 Quad-X Motor Geometry & Rotation Directions
+```
+Pixhawk TELEM2 Port (6-Pin JST-GH)           Raspberry Pi 4 Header (40-Pin GPIO)
+┌────────────────────────────────┐           ┌────────────────────────────────┐
+│ [1] VCC 5V  (Red)   ───X (Tape)│           │                                │
+│ [2] TXD     (White) ───────────┼───────────► Pin 10 (GPIO 15 / RXD)        │
+│ [3] RXD     (Black) ◄──────────┼───────────┼─ Pin 8  (GPIO 14 / TXD)        │
+│ [4] CTS     (Gray)  ───X (Tape)│           │                                │
+│ [5] RTS     (Orange)───X (Tape)│           │                                │
+│ [6] GND     (Black) ───────────┼───────────► Pin 6  (GND / Common Ground)   │
+└────────────────────────────────┘           └────────────────────────────────┘
+```
+
+### 4.2 Quad-X Motor Geometry & Rotation Directions
 
 PX4 uses standard Quad-X actuator mapping:
 
 ```
-        FRONT
-  (M3 CW)   (M1 CCW)
-    [3]       [1]
-      \       /
-       \  X  /
-       /     \
-      /       \
-    [2]       [4]
-  (M2 CCW)   (M4 CW)
-         REAR
+                  FRONT (Nose)
+                      ▲
+                      │
+        (M3 CW)               (M1 CCW)
+       Motor 3                 Motor 1
+          \                       /
+           \                     /
+            \       PIXHAWK     /
+             \      [ARROW]    /
+              \        ▲      /
+               \       │     /
+                \           /
+                 \         /
+                  \       /
+                   \     /
+          Motor 2   \   /   Motor 4
+        (M2 CCW)     \ /    (M4 CW)
+                      │
+                     REAR
 ```
 
-- **Motor 1 (Front Right)**: Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 1**
-- **Motor 2 (Rear Left)**: Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 2**
-- **Motor 3 (Front Left)**: Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 3**
-- **Motor 4 (Rear Right)**: Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 4**
+- **Motor 1 (Front Right)**: Rotates Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 1**
+- **Motor 2 (Rear Left)**: Rotates Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 2**
+- **Motor 3 (Front Left)**: Rotates Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 3**
+- **Motor 4 (Rear Right)**: Rotates Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 4**
 
-### 3.3 FlySky FS-i6 RC Transmitter Channel Mapping
+*Signal Pin Orientation*: On the Pixhawk 2.4.8 output rail, the **Signal** pin is on the bottom (marked with an `S` or `⎍`), the **5V Power** pin is in the center, and the **Ground** pin is on the top (marked with `-`).
 
-Configure the auxiliary switches on the FS-i6 controller as follows:
-- **Channel 1**: Roll (Aileron)
-- **Channel 2**: Pitch (Elevator)
-- **Channel 3**: Throttle
-- **Channel 4**: Yaw (Rudder)
-- **Channel 5 (SwA / SwC)**: Flight Mode (Position / Altitude / Manual)
-- **Channel 6 (SwB / SwD)**: Offboard Switch & Autonomous Mode Trigger
+### 4.3 FlySky FS-i6 RC Transmitter Auxiliary Switch Mapping
+
+Configure the auxiliary channels in the FS-i6 transmitter menu (`Functions Setup` $\rightarrow$ `Aux. Channels`):
+- **Channel 1**: Roll (Aileron - Right Stick Horizontal)
+- **Channel 2**: Pitch (Elevator - Right Stick Vertical)
+- **Channel 3**: Throttle (Left Stick Vertical)
+- **Channel 4**: Yaw (Rudder - Left Stick Horizontal)
+- **Channel 5 (SwC 3-Position Switch)**: Flight Mode (Position / Altitude / Manual)
+- **Channel 6 (SwD 2-Position Switch)**: Offboard Switch & Autonomous Mode Trigger
 
 ---
 
-## 4. Raspberry Pi 4 Operating System & Environment Setup
+## 5. Raspberry Pi 4 Operating System & Environment Hardening
 
-### 4.1 Linux Kernel & Serial Header Configuration
-To dedicate hardware UART on GPIO 14/15 (`/dev/ttyAMA0`) to the Pixhawk bridge:
+### 5.1 Linux Kernel & Serial Header Configuration
+To guarantee that the Broadcom PL011 hardware UART (`/dev/ttyAMA0`) is dedicated exclusively to the Pixhawk Micro-XRCE-DDS bridge without interference:
 
 1. **Remove Linux Kernel Serial Console**:
-   Edit `/boot/firmware/cmdline.txt` to remove `console=serial0,115200`:
+   Edit `/boot/firmware/cmdline.txt` to remove `console=serial0,115200`. The resulting line must read:
    ```bash
    multipath=off dwc_otg.lpm_enable=0 console=tty1 root=LABEL=writable rootfstype=ext4 rootwait fixrtc cfg80211.ieee80211_regdom=IN ds=nocloud
    ```
 2. **Enable Hardware UART and Disable Bluetooth**:
-   Ensure the following lines exist in `/boot/firmware/config.txt`:
+   Ensure `/boot/firmware/config.txt` contains:
    ```ini
    enable_uart=1
    dtoverlay=disable-bt
    arm_64bit=1
    ```
 
-### 4.2 4.0 GiB Persistent Swap File Setup
-On a 4GB Raspberry Pi 4, compiling ROS 2 C++ packages or streaming high-frequency DDS messages can trigger the Linux OOM (*Out Of Memory*) killer. We configure 4GB of swap space:
+### 5.2 4.0 GiB Persistent Swap File Setup
+A 4GB Raspberry Pi 4 running Ubuntu 22.04 LTS can exhaust physical RAM during colcon builds or high-frequency DDS message buffering, triggering the Linux OOM (*Out Of Memory*) killer. We create a dedicated 4.0 GiB swapfile:
 ```bash
 sudo fallocate -l 4G /swapfile
 sudo chmod 600 /swapfile
@@ -172,7 +228,7 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
-### 4.3 User Permissions & TigerVNC Headless Desktop
+### 5.3 User Permissions & TigerVNC Headless Desktop
 ```bash
 # Add user 'drone' to dialout to access /dev/ttyAMA0 without sudo
 sudo usermod -aG dialout,gpio,i2c drone
@@ -182,10 +238,9 @@ sudo systemctl enable vncserver@1.service
 sudo systemctl start vncserver@1.service
 ```
 
-### 4.4 Automated Environment Sourcing
-Add the following exports to `~/.bashrc`:
+### 5.4 Automated Shell Environment Sourcing
+Add the following exports to the bottom of `~/.bashrc`:
 ```bash
-export PATH="/home/drone/.local/bin:$PATH"
 source /opt/ros/humble/setup.bash
 source /home/drone/robox_ws/install/setup.bash
 export ROS_DOMAIN_ID=42
@@ -193,64 +248,128 @@ export ROS_DOMAIN_ID=42
 
 ---
 
-## 5. QGroundControl & PX4 Parameter Configuration
+## 6. Micro-XRCE-DDS Middleware Architecture
 
-Configure these parameters in **QGroundControl** (Parameters tab) to enable bench testing and high-speed companion communication:
+The communication pipeline between the Pixhawk microcontroller and the Raspberry Pi is managed by **eProsima Micro-XRCE-DDS**.
 
-| Parameter | Value | Description |
-|---|---|---|
-| `UXRCE_DDS_CFG` | `TELEM 2` | Routes Micro-XRCE-DDS telemetry to the physical TELEM2 serial port. |
-| `SER_TEL2_BAUD` | `921600` | High-speed baud rate required for 50Hz setpoints and odometry. |
-| `XRCE_DDS_DOM_ID`| `42` | Matches `export ROS_DOMAIN_ID=42` on the Raspberry Pi companion computer. |
-| `COM_ARM_WO_GPS` | `1` (Allow) | Permits arming indoors without an external 3D GPS satellite lock. |
-| `COM_RC_IN_MODE` | `1` (Disabled) | Prevents vehicle failsafe lockout when the physical RC transmitter is powered off. |
-| `COM_MOT_TEST_EN`| `1` (Enabled) | Unlocks MAVLink Command 209 (`VEHICLE_CMD_DO_MOTOR_TEST`) for companion scripts. |
-| `CBRK_IO_SAFETY` | `22027` | Circuit breaker that bypasses the hardware safety switch button requirement. |
-| `CBRK_USB_CHK` | `197848` | Circuit breaker that allows arming and motor spinning while micro-USB is connected. |
-| `CBRK_SUPPLY_CHK`| `894281` | Circuit breaker that bypasses battery voltage checks (prevents low-voltage bench lockouts). |
-| `COM_ARM_SWISBTN`| `1` (Enabled) | Treats safety switch as momentary toggle rather than a latching physical switch. |
-| `EKF2_MAG_TYPE` | `0` (Automatic) | Fuses 3D magnetometer data so EKF can compute Yaw attitude (never set to `None`). |
+```mermaid
+sequenceDiagram
+    participant PX4 as Pixhawk 2.4.8 (Client)
+    participant UART as /dev/ttyAMA0 (921600 Baud)
+    participant AGENT as MicroXRCEAgent (Pi 4)
+    participant FAST as Fast-DDS Middleware
+    participant ROS as ROS 2 f450_brain Nodes
+
+    Note over PX4,AGENT: Startup & Handshake
+    AGENT->>UART: Open serial port @ 921600 baud
+    PX4->>UART: Transmit XRCE DDS discovery packet
+    UART->>AGENT: Ingest discovery stream
+    AGENT->>PX4: Establish XRCE Session (Client Key: 0x...)
+
+    Note over PX4,ROS: 50Hz Offboard Control Loop
+    ROS->>FAST: Publish OffboardControlMode (ROS_DOMAIN_ID=42)
+    FAST->>AGENT: Ingest DDS Topic
+    AGENT->>UART: Serialize to Micro-XRCE Frame
+    UART->>PX4: Route to uORB topic: /fmu/in/offboard_control_mode
+
+    ROS->>FAST: Publish VehicleAttitudeSetpoint (Thrust: -0.30)
+    FAST->>AGENT: Ingest DDS Topic
+    AGENT->>UART: Serialize to Micro-XRCE Frame
+    UART->>PX4: Route to uORB topic: /fmu/in/vehicle_attitude_setpoint
+
+    Note over PX4,ROS: 50Hz Telemetry Feedback Loop
+    PX4->>UART: uORB vehicle_status & vehicle_attitude
+    UART->>AGENT: Stream binary XRCE frames
+    AGENT->>FAST: Publish to ROS 2 topic: /fmu/out/vehicle_attitude
+    FAST->>ROS: visualizer.py ingests attitude and broadcasts TF2
+```
 
 ---
 
-## 6. The 10-Month Engineering Retrospective (Failures & Breakthroughs)
+## 7. PX4 Firmware & QGroundControl Configuration Guide
 
-Below is an autopsy of the major engineering hurdles solved across 358 recorded turns, backed by historical telemetry logs and screenshots:
+### 7.1 Flashing Firmware on Pixhawk 2.4.8 (FMUv3)
+Pixhawk 2.4.8 is built on the **FMUv3** hardware definition (STM32F427 microcontroller). When flashing via QGroundControl:
+1. Connect Pixhawk via USB directly to your laptop/workstation.
+2. Open QGroundControl $\rightarrow$ Vehicle Setup $\rightarrow$ Firmware.
+3. Select **PX4 Flight Stack v1.14** (Default / Stable). Do not select FMUv5/v6 targets, as they will be rejected by the FMUv3 bootloader.
+
+### 7.2 Sensor Calibrations (Step-by-Step)
+<p align="center">
+  <img src="docs/images/image_86eef3.jpg" width="48%" alt="Compass Calibration in QGroundControl" />
+  <img src="docs/images/image_86e6d7.jpg" width="48%" alt="Accelerometer Calibration in QGroundControl" />
+</p>
+
+1. **Compass / Magnetometer Calibration**:
+   - Navigate to **Sensors $\rightarrow$ Compass**.
+   - Click **Calibrate** and rotate the drone around all 3 axes (Roll, Pitch, Yaw) until all progress bars turn green.
+   - *Crucial*: Perform this calibration in the center of an open room, far from laptop power supplies, metal table legs, and high-power cables.
+2. **Accelerometer Calibration**:
+   - Navigate to **Sensors $\rightarrow$ Accelerometer**.
+   - Place the drone sequentially in the 6 designated orientations: Level, Left Side, Right Side, Nose Down, Nose Up, Back. Hold still at each position until QGroundControl chimes.
+3. **Level Horizon Calibration**:
+   - Place the drone on a perfectly level surface and click **Level Horizon**.
+4. **Radio Calibration**:
+   - Turn on the FlySky FS-i6 transmitter. Move all sticks and flip all switches to their extreme limits until the blue bars trace the complete range ($1000\mu\text{s} - 2000\mu\text{s}$).
+
+### 7.3 Master Parameter Configuration Matrix
+
+Configure the following parameters in QGroundControl (Parameters tab) to enable bench testing and high-speed companion communication:
+
+| Parameter | Configured Value | Functional Category | Purpose & Technical Impact |
+|---|---|---|---|
+| `UXRCE_DDS_CFG` | `TELEM 2` | Serial Communication | Binds the internal Micro-XRCE-DDS client to the physical TELEM2 UART port. |
+| `SER_TEL2_BAUD` | `921600` | Serial Communication | Configures high-speed baud rate required for 50Hz setpoints and telemetry. |
+| `XRCE_DDS_DOM_ID`| `42` | DDS Middleware | Sets PX4 DDS Domain ID to match `export ROS_DOMAIN_ID=42` on the Raspberry Pi. |
+| `COM_ARM_WO_GPS` | `1` (Allow) | Pre-flight Checks | Permits arming indoors without an external 3D GPS satellite lock. |
+| `COM_RC_IN_MODE` | `1` (Disabled) | Failsafe Configuration | Prevents vehicle failsafe lockout when the physical RC transmitter is powered off. |
+| `COM_MOT_TEST_EN`| `1` (Enabled) | Actuator Safety | Permits external companion computers to trigger MAVLink Command 209 (`VEHICLE_CMD_DO_MOTOR_TEST`). |
+| `CBRK_IO_SAFETY` | `22027` | Circuit Breakers | Disables the physical hardware safety button requirement on the GPS mast. |
+| `CBRK_USB_CHK` | `197848` | Circuit Breakers | Disables safety lock that prevents arming while a micro-USB cable is plugged in. |
+| `CBRK_SUPPLY_CHK`| `894281` | Circuit Breakers | Bypasses power module voltage check (prevents lockout when LiPo is under 10.5V or on bench power). |
+| `COM_ARM_SWISBTN`| `1` (Enabled) | Switch Mapping | Treats physical safety switch as momentary toggle rather than a latching physical switch. |
+| `EKF2_MAG_TYPE` | `0` (Automatic) | Sensor Fusion | Ensures 3D magnetometer data is fused so EKF can estimate vehicle attitude (Yaw). |
+
+---
+
+## 8. The 10-Month Engineering Retrospective (Failures, Root Causes & Fixes)
+
+Below is an exhaustive technical autopsy of the critical challenges encountered and solved across the 358 recorded turns:
 
 ### Case Study 1: The "Silent Handshake" & TX/RX Crossover Trap
-- **Symptom**: `MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600` printed `Device /dev/ttyAMA0 opened` but never established a session (`[Session] Session established` never appeared).
-- **Autopsy**: Serial communication requires cross-connection: Transmit (TX) on the Pixhawk must connect to Receive (RX) on the Raspberry Pi. The initial telemetry cable was wired pin-for-pin (TX-to-TX), causing both chips to talk into dead lines. Additionally, `/boot/firmware/cmdline.txt` had `console=serial0,115200` enabled, which flooded the Pixhawk with Linux kernel boot text.
-- **Fix**: Removed the kernel serial console and swapped Pins 8 and 10 on the GPIO header.
+- **Symptom**: `MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600` opened the port, but never displayed `[Session] Session established`.
+- **Autopsy**: Serial UART communication requires crossover: Transmit (TX) on the flight controller must connect to Receive (RX) on the companion computer. The original cable had TX wired to TX and RX to RX. In addition, the Linux kernel had `console=serial0,115200` active on the GPIO header, continuously corrupting the baud rate with Linux dmesg boot logs.
+- **Fix**: Removed `console=serial0,115200` from `/boot/firmware/cmdline.txt` and swapped Physical Pins 8 and 10 on the Raspberry Pi GPIO header.
 
 ---
 
 ### Case Study 2: Magnetometer Calibration & The Attitude Catch-22
 <p align="center">
-  <img src="docs/images/image_86eef3.jpg" width="45%" alt="Compass Calibration" />
-  <img src="docs/images/image_86e6d7.jpg" width="45%" alt="Accelerometer Calibration" />
+  <img src="docs/images/image_a288dd.jpg" width="48%" alt="EKF2 Failsafe on Compass None" />
+  <img src="docs/images/image_a2f178.jpg" width="48%" alt="EKF2_MAG_TYPE Selection Screen" />
 </p>
 
-- **Symptom**: QGroundControl displayed persistent red sensor status for the Compass. When we attempted to bypass this by setting `EKF2_MAG_TYPE = None`, the vehicle completely refused to arm in Offboard mode.
-- **Autopsy**: If the Pixhawk has no compass heading, the EKF filter cannot determine Yaw angle. If Yaw angle is undefined, the flight controller cannot calculate 3D Attitude error vectors. Because `f450_brain` publishes attitude setpoints, PX4 rejected the commands.
+- **Symptom**: QGroundControl showed persistent red sensor warnings for Compass. When we attempted to bypass the error by setting `EKF2_MAG_TYPE = None`, the vehicle completely refused to arm in Offboard mode.
+- **Autopsy**: If the Pixhawk has no magnetometer heading, the EKF filter cannot determine Yaw angle. If Yaw angle is undefined, the flight controller cannot calculate 3D Attitude error vectors. Because `f450_brain` publishes attitude setpoints, PX4 rejected the commands.
 - **Fix**: Restored `EKF2_MAG_TYPE` to `0` (Automatic) and performed a complete 6-orientation calibration in an open room away from computer power bricks and ferromagnetic tables.
 
 ---
 
-### Case Study 3: The Ghost Bridge & Reboot Amnesia
+### Case Study 3: The Ghost Bridge & Serial Port Contention
 <p align="center">
   <img src="docs/images/screenshot_commander_run.jpg" width="60%" alt="Commander Terminal Execution" />
 </p>
 
-- **Symptom**: Motor tests functioned perfectly during a session, but after a Raspberry Pi reboot, the motors were completely unresponsive.
-- **Autopsy**: A background service (`arduino_bridge.service`) left over from an earlier wheeled-robot project was starting on boot and hijacking `/dev/ttyAMA0`.
+- **Symptom**: Motor tests functioned during one session, but after a Raspberry Pi reboot, the motors were completely unresponsive.
+- **Autopsy**: A background service (`arduino_bridge.service`) left over from an earlier differential-drive robot project was starting automatically on boot and hijacking `/dev/ttyAMA0`.
 - **Fix**: Disabled the conflicting background service and verified with `sudo fuser /dev/ttyAMA0`.
 
 ---
 
 ### Case Study 4: The MAVLink Loopback Rejection Bug (Source ID 255 / 191)
 <p align="center">
-  <img src="docs/images/image_727e5e.jpg" width="45%" alt="QGC Motor Sliders" />
-  <img src="docs/images/image_a204fe.png" width="45%" alt="QGC Parameter Check" />
+  <img src="docs/images/image_727e5e.jpg" width="48%" alt="QGC Motor Sliders" />
+  <img src="docs/images/image_a204fe.png" width="48%" alt="QGC Parameter Check" />
 </p>
 
 - **Symptom**: Motors spun smoothly using the QGroundControl Motor Sliders (proving the ESCs, PDB, and wiring were 100% operational), but running our ROS 2 Python test node resulted in complete silence from the drone.
@@ -277,18 +396,18 @@ Below is an autopsy of the major engineering hurdles solved across 358 recorded 
 
 ---
 
-### Case Study 6: Headless VNC Authentication for Antigravity CLI
+### Case Study 6: RViz2 TF Coordinate Inversion (NED vs ENU)
 <p align="center">
-  <img src="docs/images/image_8a1e19.png" width="55%" alt="VNC Desktop Browser Error" />
+  <img src="docs/images/image_e9ae1e.jpg" width="60%" alt="RViz2 TF Frame Error" />
 </p>
 
-- **Symptom**: Running `agy` inside the headless TigerVNC session threw an error when attempting to launch a browser for Google account OAuth.
-- **Autopsy**: The minimal Ubuntu Server image installed on the Raspberry Pi had no GUI web browser configured.
-- **Fix**: Installed Firefox, configured `xdg-open`, or directly copied the OAuth URL to authenticate from a laptop browser.
+- **Symptom**: RViz2 displayed red TF errors `Transform [sender=unknown] No transform from [base_link] to [map]`, and poses were inverted upside-down.
+- **Autopsy**: PX4 uses aeronautical **NED** (*North-East-Down*) where $+Z$ points into the ground. ROS 2 RViz2 uses robotics **ENU** (*East-North-Up*) where $+Z$ points toward the sky.
+- **Fix**: Developed [`visualizer.py`](file:///home/drone/robox_ws/src/f450_brain/f450_brain/visualizer.py), which subscribes to `/fmu/out/vehicle_attitude`, swaps quaternion components ($w = q_0, x = q_1, y = -q_2, z = -q_3$), and broadcasts continuous `tf2` transforms (`map` $\rightarrow$ `base_link`) and `/drone/pose`.
 
 ---
 
-## 7. ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)
+## 9. ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)
 
 The workspace is organized into two primary packages:
 
@@ -315,7 +434,7 @@ robox_ws/
 └── README.md                  # This documentation
 ```
 
-### Key Python Executables:
+### Detailed Node Specifications:
 1. **`direct_sequence.py`**:
    - Sends MAVLink Command 209 (`VEHICLE_CMD_DO_MOTOR_TEST`) with 15% throttle for 3 seconds sequentially across Motor 1 (FR) $\rightarrow$ Motor 3 (FL) $\rightarrow$ Motor 2 (RL) $\rightarrow$ Motor 4 (RR). Does not require arming.
 2. **`verify_motors.py`**:
@@ -327,11 +446,11 @@ robox_ws/
 
 ---
 
-## 8. Bench Testing & Flight Verification Protocol
+## 10. Bench Testing & Flight Verification Protocol
 
 ### Step 1: Pre-Power Inspection
-1. **Confirm all propellers are removed.**
-2. Check that Pixhawk TELEM2 is wired to RPi GPIO Pins 6, 8, and 10.
+1. **Confirm all 4 propellers are removed from the drone.**
+2. Verify Pixhawk TELEM2 is wired to RPi GPIO Pins 6 (GND), 8 (TXD), and 10 (RXD).
 3. Ensure Pi is powered via 5V UBEC or USB-C.
 4. Plug in the 3S/4S LiPo battery. ESCs will chime.
 
@@ -370,7 +489,7 @@ ros2 run f450_brain verify_motors
 
 ---
 
-## 9. Intelligent Engineering Q&A Knowledge Base
+## 11. Intelligent Engineering Q&A Knowledge Base
 
 #### Q1: Why did we use `MicroXRCEAgent` instead of traditional `MAVROS`?
 > **Answer**: `MAVROS` relies on translating MAVLink binary packets to ROS topics, adding computational overhead, latency, and serialization penalties. PX4 1.14 features native micro-RTPS / micro-XRCE-DDS middleware. The companion computer communicates directly via DDS topics matching the internal uORB messaging bus, reducing CPU load on the Raspberry Pi 4 by over 60%.
@@ -384,11 +503,26 @@ ros2 run f450_brain verify_motors
 #### Q4: Why must Pin 1 (Red 5V) of TELEM2 remain disconnected?
 > **Answer**: The Pixhawk power module powers the flight controller rail from the LiPo. If you also connect Pin 1 to the Raspberry Pi 5V rail (powered by a separate UBEC), slight voltage differences create heavy circulating ground loop currents that damage the microcontroller or cause intermittent brownouts during flight.
 
+#### Q5: What is the role of `export ROS_DOMAIN_ID=42`?
+> **Answer**: In a shared network (such as a university or lab Wi-Fi), default ROS 2 Domain 0 packets from other robots will cross-talk and corrupt topic streams. Locking the Pixhawk parameter `XRCE_DDS_DOM_ID=42` and the Pi environment `export ROS_DOMAIN_ID=42` creates an isolated communication realm.
+
 ---
 
-## 10. Repository Structure & Quick Start
+## 12. Troubleshooting Runbook
 
-To clone and set up this complete workspace on another Raspberry Pi or machine:
+| Issue / Error | Likely Root Cause | Diagnostic & Resolution Command |
+|---|---|---|
+| **`/dev/ttyAMA0: Device or resource busy`** | Another process is locking the serial port. | Run `sudo fuser -k -9 /dev/ttyAMA0` to kill rogue processes. |
+| **`Session established` never appears** | TX/RX crossover inverted or baud rate mismatch. | Verify Pins 8 & 10 are crossed and check `SER_TEL2_BAUD=921600` in QGC. |
+| **Topics visible, but echo produces no data** | `ROS_DOMAIN_ID` mismatch between agent and terminal. | Run `echo $ROS_DOMAIN_ID` (must be `42`). Never run agent with `sudo`. |
+| **Motors spin with QGC sliders but not ROS 2** | `COM_MOT_TEST_EN` is 0 or QGC is actively competing. | Set `COM_MOT_TEST_EN=1` in QGC, then completely close QGroundControl. |
+| **Drone disarms immediately after arming** | Missing 50Hz Offboard heartbeat stream. | Offboard mode requires setpoints published at $>2Hz$. Ensure `commander.py` timer runs at 50Hz. |
+
+---
+
+## 13. Quick Start & Repository Setup
+
+To clone and set up this complete workspace on another Raspberry Pi:
 
 ```bash
 # 1. Clone the repository
@@ -411,4 +545,4 @@ scripts/start_agent.sh
 
 ## License
 This project is open-source under the [Apache License 2.0](LICENSE).
-Developed with Google Antigravity CLI paired with the DeepMind agentic framework.
+Developed by Naman Harshwal for autonomous aerial robotics research.
