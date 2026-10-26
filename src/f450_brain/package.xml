@@ -5,6 +5,7 @@
   <version>1.0.0</version>
   <description>F450 Quadcopter Autonomous Flight Control and Verification Package for PX4 2.4.8 and ROS 2 Humble</description>
   <maintainer email="namanharshwal@github.com">Naman Harshwal</maintainer>
+  <author email="namanharshwal@github.com">Naman Harshwal</author>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>

@@ -188,3 +188,12 @@ If QGroundControl shows a green `Ready` status and you wish to verify Offboard a
 ros2 run f450_brain verify_motors
 ```
 This forces the drone into Offboard mode, arms the vehicle, and commands 4 sequential 30° roll/pitch tilts to verify that the flight controller mixer correctly isolates each corner motor under attitude error feedback.
+
+---
+
+## 7. Licensing, Copyright & Security
+
+- **Author**: [Naman Harshwal](https://github.com/namanharshwal)
+- **Copyright**: (c) 2025-2026 Naman Harshwal. All Rights Reserved.
+- **License**: [Apache License 2.0](LICENSE)
+- **Security Policy**: Refer to [SECURITY.md](SECURITY.md) for vulnerability disclosure and hardware safety protocols.

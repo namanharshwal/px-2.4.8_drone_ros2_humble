@@ -575,6 +575,28 @@ scripts/start_agent.sh
 
 ---
 
-## License
-This project is open-source under the [Apache License 2.0](LICENSE).
-Developed by Naman Harshwal for autonomous aerial robotics research.
+## License & Copyright
+
+Copyright (c) 2025-2026 **Naman Harshwal**. All Rights Reserved.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this project except in compliance with the License. You may obtain a copy of the License at:
+
+[http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0)
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the [LICENSE](LICENSE) file for the specific language governing permissions and limitations.
+
+---
+
+## Security Policy
+
+Security vulnerability reporting and hardware safety protocols are governed by our [SECURITY.md](SECURITY.md) policy.
+- For vulnerability reports: contact **Naman Harshwal** via [GitHub](https://github.com/namanharshwal).
+- Always observe physical safety protocols: bench testing requires complete removal of all propellers.
+- Physical UART line isolation prevents external wireless intrusion into Pixhawk flight firmware.
+
+---
+
+## Author & Maintainer
+
+- **Author**: [Naman Harshwal](https://github.com/namanharshwal)
+- **Repository**: [px-2.4.8_drone_ros2_humble](https://github.com/namanharshwal/px-2.4.8_drone_ros2_humble)

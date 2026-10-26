@@ -347,3 +347,12 @@ And execute your motor verification sequence:
 ```bash
 ros2 run f450_brain direct_sequence
 ```
+
+---
+
+## 11. Licensing, Copyright & Security
+
+- **Author**: [Naman Harshwal](https://github.com/namanharshwal)
+- **Copyright**: (c) 2025-2026 Naman Harshwal. All Rights Reserved.
+- **License**: [Apache License 2.0](LICENSE)
+- **Security Policy**: Refer to [SECURITY.md](SECURITY.md) for vulnerability reporting and UAV safety guidelines.
