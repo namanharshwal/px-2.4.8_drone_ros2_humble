@@ -11,6 +11,13 @@
 
 ---
 
+> [!TIP]
+> **DEDICATED FLIGHT CONTROLLER & QGC GUIDE:**  
+> For the standalone Pixhawk 2.4.8 hardware guide, QGroundControl parameter reference, sensor calibrations, and circuit breaker autopsies, see:  
+> 📖 **[`PIXHAWK_2.4.8_QGC_SETUP.md`](PIXHAWK_2.4.8_QGC_SETUP.md)**
+
+---
+
 > [!CAUTION]
 > ### CRITICAL BENCH TESTING SAFETY DIRECTIVE:
 > **ALWAYS REMOVE ALL 4 PROPELLERS BEFORE RUNNING BENCH TESTS!**  
