@@ -48,38 +48,42 @@ Traditional autonomous drone configurations employ **MAVROS**, which serializes 
 In contrast, modern **PX4 v1.14** features native **Micro-XRCE-DDS** client integration directly into its internal **uORB** publish-subscribe message bus. By running the lightweight **Micro-XRCE-DDS Agent** on the Raspberry Pi 4 over a high-speed UART serial bus (`/dev/ttyAMA0` at 921,600 baud), ROS 2 nodes communicate directly with the flight controller's internal topics (`/fmu/in/...` and `/fmu/out/...`) at **50Hz–100Hz** with minimal CPU overhead.
 
 ```mermaid
-flowchart TB
-    subgraph SENSORS["Perception & Manual Override"]
-        RC["FlySky FS-i6 Transmitter<br>(2.4GHz AFHDS 2A)"] -->|PPM / IBUS| RX["FS-iA6B Receiver"]
-        GPS["U-Blox NEO-M8N GPS"] -->|UART| FC["Pixhawk 2.4.8 Flight Controller<br>(STM32F427 Cortex-M4 168MHz)<br>PX4 Autopilot v1.14 (FMUv3)"]
-        MAG["External Compass QMC5883L<br>(Elevated on 15cm Mast)"] -->|I2C| FC
+flowchart TD
+    subgraph SENSORS["1. Perception and Radio Link"]
+        RC["FlySky FS-i6 Radio"] -->|PPM or IBUS| RX["FS-iA6B Receiver"]
+        GPS["U-Blox NEO-M8N GPS"] -->|UART| FC["Pixhawk 2.4.8 (PX4 1.14)"]
+        MAG["External Compass (QMC5883L)"] -->|I2C| FC
         RX -->|RC IN Port| FC
     end
 
-    subgraph POWER["Dual-Rail Power System"]
-        LIPO["3S / 4S LiPo Battery<br>(11.1V - 14.8V)"] --> PDB["F450 Integrated PDB"]
-        PDB --> PM["Pixhawk Power Module (XT60)"]
-        PM -->|5V / Current & Voltage Sensing| FC
-        PDB --> UBEC["Dedicated 5V / 3A UBEC"]
-        UBEC -->|USB-C 5V Clean Isolated Rail| RPI["Raspberry Pi 4 Model B (4GB)<br>Ubuntu 22.04.5 LTS (Jammy aarch64)"]
+    subgraph POWER["2. Dual-Rail Power Distribution"]
+        LIPO["3S or 4S LiPo Battery"] --> PDB["F450 Integrated PDB"]
+        PDB --> PM["Pixhawk Power Module"]
+        PM -->|Voltage and Current| FC
+        PDB --> UBEC["Dedicated 5V 3A UBEC"]
+        UBEC -->|Clean Isolated 5V Rail| RPI["Raspberry Pi 4 (Ubuntu 22.04)"]
     end
 
-    subgraph PROPULSION["Quad-X Actuators"]
+    subgraph ACTUATORS["3. Quad-X Propulsion"]
         FC -->|PWM MAIN 1| ESC1["ESC 1 (30A)"] --> M1["Motor 1 (Front Right CCW)"]
         FC -->|PWM MAIN 2| ESC2["ESC 2 (30A)"] --> M2["Motor 2 (Rear Left CCW)"]
         FC -->|PWM MAIN 3| ESC3["ESC 3 (30A)"] --> M3["Motor 3 (Front Left CW)"]
         FC -->|PWM MAIN 4| ESC4["ESC 4 (30A)"] --> M4["Motor 4 (Rear Right CW)"]
     end
 
-    subgraph SERIAL_LINK["Hardware Serial Bridge"]
-        FC <-->|TELEM2 UART @ 921600 Baud<br>Pins 6 (GND), 8 (TXD), 10 (RXD)<br>Pin 1 (5V) DISCONNECTED| RPI
+    subgraph SERIAL["4. High-Speed Serial DDS Bridge"]
+        FC -->|"TELEM2 TX (Pin 2) to RPi Pin 10"| RPI
+        RPI -->|"RPi TX (Pin 8) to TELEM2 RX (Pin 3)"| FC
     end
 
-    subgraph ROS2_STACK["ROS 2 Humble Autonomous Software Stack"]
-        RPI <--> AGENT["Micro-XRCE-DDS Agent<br>(Domain ID: 42)"]
-        AGENT <--> FAST["eProsima Fast-DDS"]
-        FAST <--> MSGS["px4_msgs (v1.14 IDL Definitions)"]
-        MSGS <--> NODES["f450_brain Package Nodes:<br>• direct_sequence (MAVLink Cmd 209 Motor Test)<br>• verify_motors (4-Corner Attitude Tilt Isolation)<br>• commander (50Hz Offboard Thrust & Force Arm)<br>• visualizer (PX4 NED to ROS ENU TF2 Broadcaster)"]
+    subgraph ROS2["5. ROS 2 Humble Companion Software Stack"]
+        RPI --> AGENT["Micro-XRCE-DDS Agent (Domain 42)"]
+        AGENT --> FAST["eProsima Fast-DDS"]
+        FAST --> MSGS["px4_msgs (v1.14 Definitions)"]
+        MSGS --> N1["direct_sequence Node (Motor Test Cmd 209)"]
+        MSGS --> N2["verify_motors Node (4-Corner Tilt Test)"]
+        MSGS --> N3["commander Node (Offboard Thrust & Force Arm)"]
+        MSGS --> N4["visualizer Node (NED to ENU TF2 Broadcaster)"]
     end
 ```
 
@@ -88,7 +92,7 @@ flowchart TB
 ## 2. Complete Hardware Bill of Materials (BOM)
 
 | Component | Model / Specification | Purpose & Description |
-|---|---|---|
+| :--- | :--- | :--- |
 | **Airframe** | DJI F450 FlameWheel Replica | 450mm diagonal wheelbase; composite reinforced polyamide arms; integrated PDB on center plates. |
 | **Flight Controller** | Pixhawk 2.4.8 (FMUv3) | 32-bit STM32F427 Cortex-M4 with FPU (168MHz / 256KB RAM / 2MB Flash), dual IMU, MS5611 barometer. |
 | **Companion Computer**| Raspberry Pi 4 Model B (4GB) | Broadcom BCM2711 quad-core Cortex-A72 @ 1.5GHz; 58GB SanDisk microSD; 4GB active swap. |
@@ -135,7 +139,7 @@ flowchart TB
 > The Raspberry Pi must be powered exclusively via its dedicated 5V/3A UBEC or USB-C supply. Connecting the 5V line between the Pixhawk and Raspberry Pi creates ground loops, back-powers the flight controller rail, and causes brownouts or hardware damage.
 
 | Pixhawk 2.4.8 TELEM2 Pin | Signal | Standard Wire Color | Raspberry Pi 4 Header Pin | Raspberry Pi Pin Function |
-|---|---|---|---|---|
+| :--- | :--- | :--- | :--- | :--- |
 | **Pin 1** | VCC 5V | Red | **LEAVE DISCONNECTED** | *Do NOT connect (Taped off)* |
 | **Pin 2** | TX (Pixhawk Out) | White / Yellow | **Pin 10 (Physical)** | `GPIO 15 (UART0 RXD)` |
 | **Pin 3** | RX (Pixhawk In) | Black / White | **Pin 8 (Physical)** | `GPIO 14 (UART0 TXD)` |
@@ -181,16 +185,16 @@ PX4 uses standard Quad-X actuator mapping:
                      REAR
 ```
 
-- **Motor 1 (Front Right)**: Rotates Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 1**
-- **Motor 2 (Rear Left)**: Rotates Counter-Clockwise (CCW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 2**
-- **Motor 3 (Front Left)**: Rotates Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 3**
-- **Motor 4 (Rear Right)**: Rotates Clockwise (CW) $\rightarrow$ Connects to **Pixhawk MAIN OUT 4**
+- **Motor 1 (Front Right)**: Rotates Counter-Clockwise (CCW) → Connects to **Pixhawk MAIN OUT 1**
+- **Motor 2 (Rear Left)**: Rotates Counter-Clockwise (CCW) → Connects to **Pixhawk MAIN OUT 2**
+- **Motor 3 (Front Left)**: Rotates Clockwise (CW) → Connects to **Pixhawk MAIN OUT 3**
+- **Motor 4 (Rear Right)**: Rotates Clockwise (CW) → Connects to **Pixhawk MAIN OUT 4**
 
 *Signal Pin Orientation*: On the Pixhawk 2.4.8 output rail, the **Signal** pin is on the bottom (marked with an `S` or `⎍`), the **5V Power** pin is in the center, and the **Ground** pin is on the top (marked with `-`).
 
 ### 4.3 FlySky FS-i6 RC Transmitter Auxiliary Switch Mapping
 
-Configure the auxiliary channels in the FS-i6 transmitter menu (`Functions Setup` $\rightarrow$ `Aux. Channels`):
+Configure the auxiliary channels in the FS-i6 transmitter menu (`Functions Setup` → `Aux. Channels`):
 - **Channel 1**: Roll (Aileron - Right Stick Horizontal)
 - **Channel 2**: Pitch (Elevator - Right Stick Vertical)
 - **Channel 3**: Throttle (Left Stick Vertical)
@@ -254,34 +258,32 @@ The communication pipeline between the Pixhawk microcontroller and the Raspberry
 
 ```mermaid
 sequenceDiagram
+    autonumber
     participant PX4 as Pixhawk 2.4.8 (Client)
-    participant UART as /dev/ttyAMA0 (921600 Baud)
+    participant UART as Serial Bus (ttyAMA0)
     participant AGENT as MicroXRCEAgent (Pi 4)
-    participant FAST as Fast-DDS Middleware
-    participant ROS as ROS 2 f450_brain Nodes
+    participant ROS as ROS 2 Nodes (f450_brain)
 
-    Note over PX4,AGENT: Startup & Handshake
+    Note over PX4,AGENT: 1. Startup & Handshake Protocol
     AGENT->>UART: Open serial port @ 921600 baud
     PX4->>UART: Transmit XRCE DDS discovery packet
     UART->>AGENT: Ingest discovery stream
-    AGENT->>PX4: Establish XRCE Session (Client Key: 0x...)
+    AGENT->>PX4: Establish XRCE Session (Client Key Confirmed)
 
-    Note over PX4,ROS: 50Hz Offboard Control Loop
-    ROS->>FAST: Publish OffboardControlMode (ROS_DOMAIN_ID=42)
-    FAST->>AGENT: Ingest DDS Topic
+    Note over PX4,ROS: 2. 50Hz Offboard Control Loop
+    ROS->>AGENT: Publish OffboardControlMode (Domain 42)
     AGENT->>UART: Serialize to Micro-XRCE Frame
     UART->>PX4: Route to uORB topic: /fmu/in/offboard_control_mode
 
-    ROS->>FAST: Publish VehicleAttitudeSetpoint (Thrust: -0.30)
-    FAST->>AGENT: Ingest DDS Topic
+    ROS->>AGENT: Publish VehicleAttitudeSetpoint (Thrust: -0.30)
     AGENT->>UART: Serialize to Micro-XRCE Frame
     UART->>PX4: Route to uORB topic: /fmu/in/vehicle_attitude_setpoint
 
-    Note over PX4,ROS: 50Hz Telemetry Feedback Loop
+    Note over PX4,ROS: 3. 50Hz Telemetry Feedback Loop
     PX4->>UART: uORB vehicle_status & vehicle_attitude
     UART->>AGENT: Stream binary XRCE frames
-    AGENT->>FAST: Publish to ROS 2 topic: /fmu/out/vehicle_attitude
-    FAST->>ROS: visualizer.py ingests attitude and broadcasts TF2
+    AGENT->>ROS: Publish to ROS 2 topic: /fmu/out/vehicle_attitude
+    ROS->>ROS: visualizer node converts NED to ENU and broadcasts TF2
 ```
 
 ---
@@ -291,33 +293,39 @@ sequenceDiagram
 ### 7.1 Flashing Firmware on Pixhawk 2.4.8 (FMUv3)
 Pixhawk 2.4.8 is built on the **FMUv3** hardware definition (STM32F427 microcontroller). When flashing via QGroundControl:
 1. Connect Pixhawk via USB directly to your laptop/workstation.
-2. Open QGroundControl $\rightarrow$ Vehicle Setup $\rightarrow$ Firmware.
+2. Open QGroundControl → Vehicle Setup → Firmware.
 3. Select **PX4 Flight Stack v1.14** (Default / Stable). Do not select FMUv5/v6 targets, as they will be rejected by the FMUv3 bootloader.
 
-### 7.2 Sensor Calibrations (Step-by-Step)
-<p align="center">
-  <img src="docs/images/image_86eef3.jpg" width="48%" alt="Compass Calibration in QGroundControl" />
-  <img src="docs/images/image_86e6d7.jpg" width="48%" alt="Accelerometer Calibration in QGroundControl" />
-</p>
+### 7.2 Sensor Calibrations (Step-by-Step with Screenshots)
+
+| Compass Magnetometer Calibration | 6-Orientation Accelerometer Calibration |
+| :---: | :---: |
+| ![Compass Calibration](docs/images/image_86eef3.jpg) | ![Accelerometer Calibration](docs/images/image_86e6d7.jpg) |
+| *Rotating vehicle around all 3 axes away from metal* | *Step-by-step 6-sided orientation leveling* |
+
+| Compass Calibration Progress | Accelerometer Calibration Alignment |
+| :---: | :---: |
+| ![Compass Progress](docs/images/image_86eebc.jpg) | ![Accelerometer Level](docs/images/image_86e3d3.jpg) |
+| *Full axis rotation until all bars turn green* | *Placing drone flat on level reference plane* |
 
 1. **Compass / Magnetometer Calibration**:
-   - Navigate to **Sensors $\rightarrow$ Compass**.
+   - Navigate to **Sensors → Compass**.
    - Click **Calibrate** and rotate the drone around all 3 axes (Roll, Pitch, Yaw) until all progress bars turn green.
    - *Crucial*: Perform this calibration in the center of an open room, far from laptop power supplies, metal table legs, and high-power cables.
 2. **Accelerometer Calibration**:
-   - Navigate to **Sensors $\rightarrow$ Accelerometer**.
+   - Navigate to **Sensors → Accelerometer**.
    - Place the drone sequentially in the 6 designated orientations: Level, Left Side, Right Side, Nose Down, Nose Up, Back. Hold still at each position until QGroundControl chimes.
 3. **Level Horizon Calibration**:
    - Place the drone on a perfectly level surface and click **Level Horizon**.
 4. **Radio Calibration**:
-   - Turn on the FlySky FS-i6 transmitter. Move all sticks and flip all switches to their extreme limits until the blue bars trace the complete range ($1000\mu\text{s} - 2000\mu\text{s}$).
+   - Turn on the FlySky FS-i6 transmitter. Move all sticks and flip all switches to their extreme limits until the blue bars trace the complete range (1000 µs – 2000 µs).
 
 ### 7.3 Master Parameter Configuration Matrix
 
 Configure the following parameters in QGroundControl (Parameters tab) to enable bench testing and high-speed companion communication:
 
 | Parameter | Configured Value | Functional Category | Purpose & Technical Impact |
-|---|---|---|---|
+| :--- | :--- | :--- | :--- |
 | `UXRCE_DDS_CFG` | `TELEM 2` | Serial Communication | Binds the internal Micro-XRCE-DDS client to the physical TELEM2 UART port. |
 | `SER_TEL2_BAUD` | `921600` | Serial Communication | Configures high-speed baud rate required for 50Hz setpoints and telemetry. |
 | `XRCE_DDS_DOM_ID`| `42` | DDS Middleware | Sets PX4 DDS Domain ID to match `export ROS_DOMAIN_ID=42` on the Raspberry Pi. |
@@ -344,10 +352,11 @@ Below is an exhaustive technical autopsy of the critical challenges encountered 
 ---
 
 ### Case Study 2: Magnetometer Calibration & The Attitude Catch-22
-<p align="center">
-  <img src="docs/images/image_a288dd.jpg" width="48%" alt="EKF2 Failsafe on Compass None" />
-  <img src="docs/images/image_a2f178.jpg" width="48%" alt="EKF2_MAG_TYPE Selection Screen" />
-</p>
+
+| EKF2 Failsafe on Magnetometer Set to "None" | EKF2_MAG_TYPE Dropdown Selection |
+| :---: | :---: |
+| ![EKF2 Failsafe](docs/images/image_a288dd.jpg) | ![EKF2 Selection](docs/images/image_a2f178.jpg) |
+| *EKF failsafe triggers because yaw attitude is lost* | *Selecting Automatic (0) restores heading fusion* |
 
 - **Symptom**: QGroundControl showed persistent red sensor warnings for Compass. When we attempted to bypass the error by setting `EKF2_MAG_TYPE = None`, the vehicle completely refused to arm in Offboard mode.
 - **Autopsy**: If the Pixhawk has no magnetometer heading, the EKF filter cannot determine Yaw angle. If Yaw angle is undefined, the flight controller cannot calculate 3D Attitude error vectors. Because `f450_brain` publishes attitude setpoints, PX4 rejected the commands.
@@ -356,9 +365,11 @@ Below is an exhaustive technical autopsy of the critical challenges encountered 
 ---
 
 ### Case Study 3: The Ghost Bridge & Serial Port Contention
-<p align="center">
-  <img src="docs/images/screenshot_commander_run.jpg" width="60%" alt="Commander Terminal Execution" />
-</p>
+
+| Terminal Execution of Commander Node | MicroXRCEAgent Active Session |
+| :---: | :---: |
+| ![Commander Terminal](docs/images/screenshot_commander_run.jpg) | ![MicroXRCEAgent Session](docs/images/image_a304e0.jpg) |
+| *ROS 2 Commander node firing force-arm sequence* | *Agent established session over /dev/ttyAMA0 @ 921600* |
 
 - **Symptom**: Motor tests functioned during one session, but after a Raspberry Pi reboot, the motors were completely unresponsive.
 - **Autopsy**: A background service (`arduino_bridge.service`) left over from an earlier differential-drive robot project was starting automatically on boot and hijacking `/dev/ttyAMA0`.
@@ -367,10 +378,16 @@ Below is an exhaustive technical autopsy of the critical challenges encountered 
 ---
 
 ### Case Study 4: The MAVLink Loopback Rejection Bug (Source ID 255 / 191)
-<p align="center">
-  <img src="docs/images/image_727e5e.jpg" width="48%" alt="QGC Motor Sliders" />
-  <img src="docs/images/image_a204fe.png" width="48%" alt="QGC Parameter Check" />
-</p>
+
+| QGroundControl Motor Testing Sliders | Safety Switch and Arming Parameters |
+| :---: | :---: |
+| ![QGC Sliders](docs/images/image_727e5e.jpg) | ![QGC Safety Parameters](docs/images/image_a204fe.png) |
+| *Motors spun with sliders, proving wiring is 100% sound* | *COM_ARM_SWISBTN and COM_MOT_TEST_EN enabled* |
+
+| Circuit Breaker Configuration in QGC | External Computer Command Verification |
+| :---: | :---: |
+| ![Circuit Breakers](docs/images/image_a20556.png) | ![Parameter Verification](docs/images/image_a20219.png) |
+| *CBRK_IO_SAFETY unlocking PWM output rail* | *COM_MOT_TEST_EN set to 1 for Command 209* |
 
 - **Symptom**: Motors spun smoothly using the QGroundControl Motor Sliders (proving the ESCs, PDB, and wiring were 100% operational), but running our ROS 2 Python test node resulted in complete silence from the drone.
 - **Autopsy**: In the original script, we populated:
@@ -390,6 +407,12 @@ Below is an exhaustive technical autopsy of the critical challenges encountered 
 ---
 
 ### Case Study 5: The `sudo` Environment Reset & ROS 2 Domain Mismatch
+
+| Pre-Flight Readiness in QGroundControl | Vehicle Arming Ready Check |
+| :---: | :---: |
+| ![QGC Readiness](docs/images/image_720224.png) | ![QGC Ready Indicator](docs/images/image_72027b.png) |
+| *Vehicle status showing Ready with sensors active* | *Top status bar confirms armed state readiness* |
+
 - **Symptom**: The agent outputted session connected, but `ros2 topic echo /fmu/out/vehicle_status` reported zero messages.
 - **Autopsy**: The agent was executed as `sudo MicroXRCEAgent ...`. Sudo resets environment variables (`env_reset`), dropping `ROS_DOMAIN_ID=42` and forcing the agent onto default Domain `0`, while the ROS 2 workspace was publishing on Domain `42`.
 - **Fix**: User `drone` was granted permissions in the `dialout` group, allowing `MicroXRCEAgent` to run directly as a standard user, automatically inheriting `ROS_DOMAIN_ID=42`.
@@ -397,13 +420,15 @@ Below is an exhaustive technical autopsy of the critical challenges encountered 
 ---
 
 ### Case Study 6: RViz2 TF Coordinate Inversion (NED vs ENU)
-<p align="center">
-  <img src="docs/images/image_e9ae1e.jpg" width="60%" alt="RViz2 TF Frame Error" />
-</p>
+
+| RViz2 Transform Tree Error | Gazebo vs Physical Port Collision |
+| :---: | :---: |
+| ![RViz2 TF Error](docs/images/image_e9ae1e.jpg) | ![Port Collision](docs/images/image_72e324.jpg) |
+| *Missing transform from base_link to map in RViz2* | *Gazebo simulation UDP collision with physical agent* |
 
 - **Symptom**: RViz2 displayed red TF errors `Transform [sender=unknown] No transform from [base_link] to [map]`, and poses were inverted upside-down.
 - **Autopsy**: PX4 uses aeronautical **NED** (*North-East-Down*) where $+Z$ points into the ground. ROS 2 RViz2 uses robotics **ENU** (*East-North-Up*) where $+Z$ points toward the sky.
-- **Fix**: Developed [`visualizer.py`](file:///home/drone/robox_ws/src/f450_brain/f450_brain/visualizer.py), which subscribes to `/fmu/out/vehicle_attitude`, swaps quaternion components ($w = q_0, x = q_1, y = -q_2, z = -q_3$), and broadcasts continuous `tf2` transforms (`map` $\rightarrow$ `base_link`) and `/drone/pose`.
+- **Fix**: Developed `visualizer.py`, which subscribes to `/fmu/out/vehicle_attitude`, swaps quaternion components `(w = q[0], x = q[1], y = -q[2], z = -q[3])`, and broadcasts continuous `tf2` transforms (`map` → `base_link`) and `/drone/pose`.
 
 ---
 
@@ -436,13 +461,13 @@ robox_ws/
 
 ### Detailed Node Specifications:
 1. **`direct_sequence.py`**:
-   - Sends MAVLink Command 209 (`VEHICLE_CMD_DO_MOTOR_TEST`) with 15% throttle for 3 seconds sequentially across Motor 1 (FR) $\rightarrow$ Motor 3 (FL) $\rightarrow$ Motor 2 (RL) $\rightarrow$ Motor 4 (RR). Does not require arming.
+   - Sends MAVLink Command 209 (`VEHICLE_CMD_DO_MOTOR_TEST`) with 15% throttle for 3 seconds sequentially across Motor 1 (FR) → Motor 3 (FL) → Motor 2 (RL) → Motor 4 (RR). Does not require arming.
 2. **`verify_motors.py`**:
    - Force-arms the vehicle (`param2=21196.0`) and commands 4 sequential 30° roll/pitch attitude tilts to verify motor differential mixer behavior under attitude error feedback.
 3. **`commander.py`**:
    - Streams 50Hz `OffboardControlMode` heartbeats, switches Pixhawk to Offboard mode, force-arms, holds 30% upward thrust, and automatically disarms after 10 seconds.
 4. **`visualizer.py`**:
-   - Subscribes to `/fmu/out/vehicle_attitude`, converts PX4 NED quaternions to ROS ENU coordinates, and broadcasts `tf2` transforms (`map` $\rightarrow$ `base_link`) and `/drone/pose` for live RViz2 visualization.
+   - Subscribes to `/fmu/out/vehicle_attitude`, converts PX4 NED quaternions to ROS ENU coordinates, and broadcasts `tf2` transforms (`map` → `base_link`) and `/drone/pose` for live RViz2 visualization.
 
 ---
 
@@ -476,11 +501,11 @@ ros2 topic echo /fmu/out/vehicle_status
 ```bash
 ros2 run f450_brain direct_sequence
 ```
-- **$t = 2\text{s}$**: Motor 1 (Front Right) spins at 15% for 3 seconds.
-- **$t = 6\text{s}$**: Motor 3 (Front Left) spins at 15% for 3 seconds.
-- **$t = 10\text{s}$**: Motor 2 (Rear Left) spins at 15% for 3 seconds.
-- **$t = 14\text{s}$**: Motor 4 (Rear Right) spins at 15% for 3 seconds.
-- **$t = 18\text{s}$**: Test complete, node exits cleanly.
+- **t = 2s**: Motor 1 (Front Right) spins at 15% for 3 seconds.
+- **t = 6s**: Motor 3 (Front Left) spins at 15% for 3 seconds.
+- **t = 10s**: Motor 2 (Rear Left) spins at 15% for 3 seconds.
+- **t = 14s**: Motor 4 (Rear Right) spins at 15% for 3 seconds.
+- **t = 18s**: Test complete, node exits cleanly.
 
 ### Step 5: Run Attitude Tilt Verification
 ```bash
@@ -511,7 +536,7 @@ ros2 run f450_brain verify_motors
 ## 12. Troubleshooting Runbook
 
 | Issue / Error | Likely Root Cause | Diagnostic & Resolution Command |
-|---|---|---|
+| :--- | :--- | :--- |
 | **`/dev/ttyAMA0: Device or resource busy`** | Another process is locking the serial port. | Run `sudo fuser -k -9 /dev/ttyAMA0` to kill rogue processes. |
 | **`Session established` never appears** | TX/RX crossover inverted or baud rate mismatch. | Verify Pins 8 & 10 are crossed and check `SER_TEL2_BAUD=921600` in QGC. |
 | **Topics visible, but echo produces no data** | `ROS_DOMAIN_ID` mismatch between agent and terminal. | Run `echo $ROS_DOMAIN_ID` (must be `42`). Never run agent with `sudo`. |
