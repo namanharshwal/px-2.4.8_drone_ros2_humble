@@ -107,11 +107,20 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, SystemExit):
-        node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
-        time.sleep(0.1)
+        try:
+            node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
+            time.sleep(0.1)
+        except Exception:
+            pass
+    except Exception:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
 if __name__ == '__main__':
     main()

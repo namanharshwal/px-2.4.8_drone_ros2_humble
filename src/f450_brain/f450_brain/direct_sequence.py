@@ -69,9 +69,15 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, SystemExit):
         pass
+    except Exception:
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
 if __name__ == '__main__':
     main()
