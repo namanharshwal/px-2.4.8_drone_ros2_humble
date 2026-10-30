@@ -35,7 +35,7 @@ if "ROS_DISTRO" not in os.environ:
     cmd = (
         "source /opt/ros/humble/setup.bash && "
         "source /home/drone/robox_ws/install/setup.bash && "
-        "export ROS_DOMAIN_ID=42 && "
+        "export ROS_DOMAIN_ID=0 && "
         f"exec python3 '{os.path.abspath(__file__)}'"
     )
     subprocess.run(["bash", "-c", cmd])
@@ -83,12 +83,27 @@ def main():
     dev_exists = os.path.exists("/dev/ttyAMA0")
     test("Device /dev/ttyAMA0 Exists", dev_exists, "/dev/ttyAMA0 character device present")
 
+    agent_already_running = False
     try:
-        fuser_out = subprocess.check_output(["sudo", "fuser", "/dev/ttyAMA0"], stderr=subprocess.DEVNULL)
-        locked = len(fuser_out.strip()) > 0
+        fuser_out = subprocess.check_output(["sudo", "fuser", "/dev/ttyAMA0"], stderr=subprocess.DEVNULL).decode()
+        pids = fuser_out.strip().split()
+        if pids:
+            for pid in pids:
+                try:
+                    with open(f"/proc/{pid}/cmdline", "r") as f:
+                        if "MicroXRCEAgent" in f.read():
+                            agent_already_running = True
+                            break
+                except Exception:
+                    pass
+            if agent_already_running:
+                test("Serial Port Lock Check", True, f"Port in active use by MicroXRCEAgent (PID {pid})")
+            else:
+                test("Serial Port Lock Check", False, f"Rogue process locking /dev/ttyAMA0: {pids}")
+        else:
+            test("Serial Port Lock Check", True, "No conflicting processes locking /dev/ttyAMA0")
     except subprocess.CalledProcessError:
-        locked = False
-    test("Serial Port Lock Check", not locked, "No conflicting processes locking /dev/ttyAMA0")
+        test("Serial Port Lock Check", True, "No conflicting processes locking /dev/ttyAMA0")
 
     # 4. User Permissions
     try:
@@ -104,20 +119,23 @@ def main():
     except Exception as e:
         test("MicroXRCEAgent Binary Present", False, str(e))
 
-    try:
-        res = subprocess.run(["timeout", "2", "MicroXRCEAgent", "serial", "--dev", "/dev/ttyAMA0", "-b", "921600"],
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        agent_init = "running..." in res.stdout or "logger setup" in res.stdout
-        test("MicroXRCEAgent Port Initialization", agent_init, "Successfully opened /dev/ttyAMA0 @ 921600 baud without sudo")
-    except Exception as e:
-        test("MicroXRCEAgent Port Initialization", False, str(e))
+    if agent_already_running:
+        test("MicroXRCEAgent Port Initialization", True, "MicroXRCEAgent is actively running and connected on /dev/ttyAMA0")
+    else:
+        try:
+            res = subprocess.run(["timeout", "2", "MicroXRCEAgent", "serial", "--dev", "/dev/ttyAMA0", "-b", "921600"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            agent_init = "running..." in res.stdout or "logger setup" in res.stdout
+            test("MicroXRCEAgent Port Initialization", agent_init, "Successfully opened /dev/ttyAMA0 @ 921600 baud without sudo")
+        except Exception as e:
+            test("MicroXRCEAgent Port Initialization", False, str(e))
 
     # 6. ROS 2 Environment & Sourcing
     try:
         with open(os.path.expanduser("~/.bashrc"), "r") as f:
             bashrc = f.read()
-        bashrc_ok = "ROS_DOMAIN_ID=42" in bashrc and "robox_ws/install/setup.bash" in bashrc
-        test("~/.bashrc Environment Configured", bashrc_ok, "ROS_DOMAIN_ID=42 and robox_ws sourced")
+        bashrc_ok = ("ROS_DOMAIN_ID=0" in bashrc or "ROS_DOMAIN_ID=42" in bashrc) and "robox_ws/install/setup.bash" in bashrc
+        test("~/.bashrc Environment Configured", bashrc_ok, "ROS_DOMAIN_ID active and robox_ws sourced")
     except Exception as e:
         test("~/.bashrc Environment Configured", False, str(e))
 

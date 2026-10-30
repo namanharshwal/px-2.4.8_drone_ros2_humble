@@ -24,4 +24,5 @@ echo "Setting permissions for $DEVICE..."
 sudo chmod 666 "$DEVICE"
 
 echo "Starting MicroXRCEAgent on $DEVICE at $BAUDRATE baud..."
+export ROS_DOMAIN_ID=0
 MicroXRCEAgent serial --dev "$DEVICE" -b "$BAUDRATE"
