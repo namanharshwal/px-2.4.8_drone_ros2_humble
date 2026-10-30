@@ -14,6 +14,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[pxy][yma]*'))),
         (os.path.join('share', package_name, 'config'), glob(os.path.join('config', '*.yaml'))),
+        (os.path.join('share', package_name, 'urdf'), glob(os.path.join('urdf', '*'))),
+        (os.path.join('share', package_name, 'rviz'), glob(os.path.join('rviz', '*'))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -28,6 +30,8 @@ setup(
             'verify_motors = f450_brain.verify_motors:main',
             'direct_sequence = f450_brain.direct_sequence:main',
             'visualizer = f450_brain.visualizer:main',
+            'f450_sim = f450_brain.f450_sim:main',
+            'keyboard_teleop = f450_brain.keyboard_teleop:main',
         ],
     },
 )

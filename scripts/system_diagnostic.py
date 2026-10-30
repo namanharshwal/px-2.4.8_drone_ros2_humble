@@ -155,15 +155,17 @@ def main():
         from f450_brain.verify_motors import MotorVerificationTest
         from f450_brain.commander import DroneCommander
         from f450_brain.visualizer import DroneVisualizer
-        test("f450_brain Python Modules", True, "direct_sequence, verify_motors, commander, visualizer all importable")
+        from f450_brain.f450_sim import F450SimEngine
+        from f450_brain.keyboard_teleop import KeyboardTeleop
+        test("f450_brain Python Modules", True, "All 6 modules (sim, teleop, commander, visualizer, tests) importable")
     except Exception as e:
         test("f450_brain Python Modules", False, str(e))
 
     # 9. ROS 2 CLI Executable Registration
     try:
         exec_out = subprocess.check_output(["ros2", "pkg", "executables", "f450_brain"]).decode()
-        all_execs = all(x in exec_out for x in ["commander", "direct_sequence", "verify_motors", "visualizer"])
-        test("ROS 2 Registered Executables", all_execs, "All 4 console_scripts registered in ament index")
+        all_execs = all(x in exec_out for x in ["commander", "direct_sequence", "verify_motors", "visualizer", "f450_sim", "keyboard_teleop"])
+        test("ROS 2 Registered Executables", all_execs, "All 6 console_scripts registered in ament index")
     except Exception as e:
         test("ROS 2 Registered Executables", False, str(e))
 
