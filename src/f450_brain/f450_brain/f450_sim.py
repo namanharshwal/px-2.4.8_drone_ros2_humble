@@ -17,9 +17,9 @@ Author: Naman Harshwal
 
 Bridges keyboard teleop commands to both the physical Pixhawk 2.4.8 hardware
 and a 6-DOF Real-Time Digital Twin Simulation with 3D RViz2 visualization:
-- Integrates 50Hz Offboard Trajectory Setpoints & Heartbeats to PX4
-- Broadcasts dynamic TF tree: 'map' -> 'odom' -> 'base_link'
-- Publishes /joint_states for spinning 3D propellers
+- Streams 50Hz Offboard Attitude & Thrust Setpoints directly to the motor mixer
+- Broadcasts dynamic TF tree: 'map' -> 'odom' -> 'base_footprint'
+- Publishes /joint_states for spinning 3D propellers proportional to motor throttle
 - Records flight path history on /f450/path
 """
 
@@ -38,7 +38,7 @@ from rclpy.executors import ExternalShutdownException
 
 from px4_msgs.msg import (
     OffboardControlMode,
-    TrajectorySetpoint,
+    VehicleAttitudeSetpoint,
     VehicleAttitude,
     VehicleStatus,
     VehicleCommand
@@ -51,7 +51,7 @@ def euler_to_quaternion(roll, pitch, yaw):
     sp = math.sin(pitch * 0.5)
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
-    w = cr * cp * cy + sr * sp * sy
+    w = cr * cp * cy + sr * cp * sy
     x = sr * cp * cy - cr * sp * sy
     y = cr * sp * cy + sr * cp * sy
     z = cr * cp * sy - sr * sp * cy
@@ -81,9 +81,9 @@ class F450SimEngine(Node):
         self.create_subscription(VehicleAttitude, '/fmu/out/vehicle_attitude', self.hw_attitude_callback, px4_qos)
         self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status', self.hw_status_callback, px4_qos)
 
-        # Publishers to PX4 Hardware
+        # Publishers to PX4 Hardware (Direct Attitude & Thrust Mixer Loop)
         self.mode_pub = self.create_publisher(OffboardControlMode, '/fmu/in/offboard_control_mode', px4_qos)
-        self.traj_pub = self.create_publisher(TrajectorySetpoint, '/fmu/in/trajectory_setpoint', px4_qos)
+        self.att_pub = self.create_publisher(VehicleAttitudeSetpoint, '/fmu/in/vehicle_attitude_setpoint', px4_qos)
         self.cmd_pub = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', px4_qos)
 
         # Simulation & Visualization Publishers
@@ -93,17 +93,17 @@ class F450SimEngine(Node):
         self.joint_pub = self.create_publisher(JointState, '/joint_states', std_qos)
         self.tf_broadcaster = TransformBroadcaster(self)
 
-        # Drone State Variables
+        # Drone State Variables (Simulation)
         self.pos = [0.0, 0.0, 0.0]     # X, Y, Z (meters)
         self.vel = [0.0, 0.0, 0.0]     # Vx, Vy, Vz (m/s)
         self.euler = [0.0, 0.0, 0.0]   # Roll, Pitch, Yaw (radians)
-        self.quat = [1.0, 0.0, 0.0, 0.0] # w, x, y, z
+        self.quat = [1.0, 0.0, 0.0, 0.0]
 
-        # Desired Velocities from Teleop
-        self.cmd_vx = 0.0
-        self.cmd_vy = 0.0
-        self.cmd_vz = 0.0
-        self.cmd_yaw_rate = 0.0
+        # Commanded setpoints from teleop
+        self.cmd_pitch = 0.0       # Pitch angle in radians (from linear.x)
+        self.cmd_roll = 0.0        # Roll angle in radians (from linear.y)
+        self.cmd_throttle = 0.0    # Throttle: 0.0 to 1.0 (from linear.z)
+        self.cmd_yaw_rate = 0.0    # Yaw rate in rad/s (from angular.z)
 
         # Hardware Status
         self.hw_attitude_available = False
@@ -117,12 +117,16 @@ class F450SimEngine(Node):
 
         # Main 50Hz Loop (20ms)
         self.timer = self.create_timer(0.02, self.sim_loop)
-        self.get_logger().info("F450 Hybrid Simulation & Hardware Engine running at 50Hz.")
+        self.get_logger().info("F450 Hybrid Simulation & Hardware Engine running at 50Hz (Attitude & Thrust Mode).")
 
     def cmd_vel_callback(self, msg: Twist):
-        self.cmd_vx = msg.linear.x
-        self.cmd_vy = msg.linear.y
-        self.cmd_vz = msg.linear.z
+        # linear.x is pitch tilt in radians (e.g. +/- 0.35 rad ~ +/- 20 deg)
+        self.cmd_pitch = msg.linear.x
+        # linear.y is roll tilt in radians
+        self.cmd_roll = msg.linear.y
+        # linear.z is direct throttle (0.0 to 1.0)
+        self.cmd_throttle = msg.linear.z
+        # angular.z is yaw rate
         self.cmd_yaw_rate = msg.angular.z
 
     def hw_attitude_callback(self, msg: VehicleAttitude):
@@ -139,39 +143,39 @@ class F450SimEngine(Node):
         stamp = now.to_msg()
         dt = 0.02
 
-        # 1. Dispatch 50Hz Offboard Stream to Real PX4 Hardware
+        # 1. Dispatch 50Hz Direct Attitude & Thrust Stream to Real PX4 Flight Controller
         self.publish_px4_offboard_heartbeat()
-        self.publish_px4_trajectory()
+        self.publish_px4_attitude()
 
-        # 2. Physics & Kinematics Update
+        # 2. Physics & Kinematics Update (Simulation)
         # Update Yaw
         self.euler[2] += self.cmd_yaw_rate * dt
         yaw = self.euler[2]
 
-        # Rotate body-frame command velocities into world frame (ENU)
-        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
-        world_vx = self.cmd_vx * cos_yaw - self.cmd_vy * sin_yaw
-        world_vy = self.cmd_vx * sin_yaw + self.cmd_vy * cos_yaw
-        world_vz = self.cmd_vz
+        # Calculate simulated velocity based on pitch/roll tilt and throttle
+        forward_acc = -math.sin(self.cmd_pitch) * 9.81
+        side_acc = math.sin(self.cmd_roll) * 9.81
+        vertical_acc = (self.cmd_throttle - 0.25) * 8.0 if self.cmd_throttle > 0.05 else -4.9
 
-        # Smooth velocity integration
-        alpha = 0.25
-        self.vel[0] = (1.0 - alpha) * self.vel[0] + alpha * world_vx
-        self.vel[1] = (1.0 - alpha) * self.vel[1] + alpha * world_vy
-        self.vel[2] = (1.0 - alpha) * self.vel[2] + alpha * world_vz
+        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+        world_ax = forward_acc * cos_yaw - side_acc * sin_yaw
+        world_ay = forward_acc * sin_yaw + side_acc * cos_yaw
+
+        # Damped integration
+        self.vel[0] = 0.95 * self.vel[0] + world_ax * dt
+        self.vel[1] = 0.95 * self.vel[1] + world_ay * dt
+        self.vel[2] = 0.95 * self.vel[2] + vertical_acc * dt
 
         # Position integration
         self.pos[0] += self.vel[0] * dt
         self.pos[1] += self.vel[1] * dt
         self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
 
-        # Dynamic Bank / Tilt Angles based on acceleration & velocity
-        desired_pitch = -self.cmd_vx * 0.15   # Forward velocity tilts pitch down
-        desired_roll = self.cmd_vy * 0.15    # Right velocity tilts roll right
-        self.euler[0] = (1.0 - alpha) * self.euler[0] + alpha * desired_roll
-        self.euler[1] = (1.0 - alpha) * self.euler[1] + alpha * desired_pitch
+        # Set simulated euler tilt
+        self.euler[0] = self.cmd_roll
+        self.euler[1] = self.cmd_pitch
 
-        # If real hardware telemetry is active, blend attitude with real hardware IMU
+        # If real hardware telemetry is available, mirror the real physical drone's attitude in RViz!
         if self.hw_attitude_available:
             self.quat = self.hw_quat
         else:
@@ -230,11 +234,11 @@ class F450SimEngine(Node):
                 self.path_msg.poses.pop(0)
             self.path_pub.publish(self.path_msg)
 
-        # 6. Spin 3D Propellers (/joint_states)
-        is_spinning = (self.pos[2] > 0.01 or abs(self.cmd_vx) > 0.01 or abs(self.cmd_vy) > 0.01 or
-                       abs(self.cmd_vz) > 0.01 or self.hw_armed)
-        if is_spinning:
-            self.prop_angle = (self.prop_angle + 0.8) % (2.0 * math.pi)
+        # 6. Spin 3D Propellers proportional to motor throttle
+        is_active = (self.cmd_throttle > 0.05 or self.hw_armed or self.pos[2] > 0.01)
+        if is_active:
+            spin_speed = 0.5 + 2.0 * max(0.15, self.cmd_throttle)
+            self.prop_angle = (self.prop_angle + spin_speed) % (2.0 * math.pi)
 
         js = JointState()
         js.header.stamp = stamp
@@ -250,29 +254,32 @@ class F450SimEngine(Node):
     def publish_px4_offboard_heartbeat(self):
         msg = OffboardControlMode()
         msg.position = False
-        msg.velocity = True
+        msg.velocity = False
         msg.acceleration = False
-        msg.attitude = False
+        msg.attitude = True    # Direct Attitude & Motor Mixer mode (works indoors without GPS!)
         msg.body_rate = False
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.mode_pub.publish(msg)
 
-    def publish_px4_trajectory(self):
+    def publish_px4_attitude(self):
+        msg = VehicleAttitudeSetpoint()
         # In PX4 NED frame:
-        # X is North (Forward), Y is East (Right), Z is Down
-        # cmd_vx -> North (+X)
-        # cmd_vy -> East (+Y)
-        # cmd_vz -> Down (-Z)
-        msg = TrajectorySetpoint()
-        msg.velocity = [
-            float(self.cmd_vx),
-            float(self.cmd_vy),
-            float(-self.cmd_vz)
-        ]
-        msg.yaw = float(-self.euler[2])
-        msg.yawspeed = float(-self.cmd_yaw_rate)
+        # roll -> right (+), pitch -> nose up (+), yaw -> CW (+)
+        # Convert commanded ENU roll/pitch/yaw to PX4 NED frame:
+        ned_q = euler_to_quaternion(self.cmd_roll, -self.cmd_pitch, -self.euler[2])
+        msg.q_d = [float(ned_q[0]), float(ned_q[1]), float(ned_q[2]), float(ned_q[3])]
+
+        # In NED frame, negative Z thrust commands upward motor power:
+        if self.hw_armed or self.cmd_throttle > 0.05:
+            # Scale throttle between 15% (idle) and 60%
+            eff_throttle = max(0.15, min(0.60, self.cmd_throttle))
+            msg.thrust_body = [0.0, 0.0, -float(eff_throttle)]
+        else:
+            msg.thrust_body = [0.0, 0.0, 0.0]
+
+        msg.yaw_sp_move_rate = float(-self.cmd_yaw_rate)
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
-        self.traj_pub.publish(msg)
+        self.att_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

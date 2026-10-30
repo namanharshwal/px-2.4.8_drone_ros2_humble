@@ -17,9 +17,10 @@ Author: Naman Harshwal
 
 Provides interactive keyboard flight control for both the 3D Digital Twin Simulation
 and the Physical Pixhawk 2.4.8 Hardware simultaneously:
-- Real-time terminal HUD with live velocity and flight state telemetry
-- Full 6-DOF controls: Pitch, Roll, Throttle/Altitude, Yaw Rate
+- Real-time terminal HUD with live velocity, throttle, and flight state telemetry
+- Full 6-DOF controls: Pitch, Roll, Throttle/Thrust (Motor RPM), Yaw Rate
 - Direct Offboard Toggle, Force Arm, and Emergency Disarm keys
+- Quick Motor Test key [M] to pulse real ESCs
 """
 
 import os
@@ -27,6 +28,7 @@ import sys
 import select
 import termios
 import tty
+import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
@@ -40,13 +42,13 @@ BANNER = """
 ║           Author: Naman Harshwal | ROS 2 Humble & PX4 2.4.8              ║
 ╠══════════════════════════════════════════════════════════════════════════╣
 ║                                                                          ║
-║       [W] : Pitch Forward (+Vx)         [I] : Climb / Altitude Up (+Vz)  ║
-║  [A]  [S]  [D] : Roll L / Back / Roll R [K] : Descend (-Vz)              ║
-║       [J] : Yaw Turn Left (CCW)         [L] : Yaw Turn Right (CW)        ║
+║       [W] : Pitch Forward (Tilt Nose Down) [I] : Throttle UP (+5% Power) ║
+║  [A]  [S]  [D] : Roll L / Back / Roll R    [K] : Throttle DOWN (-5% Power║
+║       [J] : Yaw Turn Left (CCW)            [L] : Yaw Turn Right (CW)     ║
 ║                                                                          ║
-║       [SPACE] : Hover / Brake to 0.0    [O] : Request OFFBOARD Mode      ║
-║       [P]     : ARM Vehicle             [X] : EMERGENCY DISARM           ║
-║       [+] / [-]: Increase/Decrease Max Speed   [Q] : Exit Teleop         ║
+║       [P] : ARM Drone (15% Idle Motors)    [O] : Switch to OFFBOARD Mode ║
+║       [M] : Motor Pulse Test (All 4 ESCs)  [SPACE] : Level & Idle (15%)  ║
+║       [X] : EMERGENCY DISARM (Motors STOP) [Q] : Exit Teleop             ║
 ║                                                                          ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 """
@@ -71,18 +73,13 @@ class KeyboardTeleop(Node):
         self.vehicle_cmd_pub = self.create_publisher(VehicleCommand, '/fmu/in/vehicle_command', px4_qos)
         self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status', self.status_cb, px4_qos)
 
-        # Velocities
-        self.vx = 0.0
-        self.vy = 0.0
-        self.vz = 0.0
-        self.yaw_rate = 0.0
+        # Control States
+        self.pitch = 0.0        # Radians (+/- 0.40 rad ~ 23 deg)
+        self.roll = 0.0         # Radians (+/- 0.40 rad)
+        self.throttle = 0.0     # 0.0 to 0.60
+        self.yaw_rate = 0.0     # rad/s
 
-        # Step Sizes
-        self.speed_step = 0.5    # m/s
-        self.yaw_step = 0.5      # rad/s
-        self.max_speed = 3.0
-
-        # Flight State
+        # Flight State from Pixhawk
         self.hw_armed = False
         self.nav_state = 0
         self.mode_str = "STANDBY"
@@ -104,17 +101,19 @@ class KeyboardTeleop(Node):
 
     def publish_loop(self):
         msg = Twist()
-        msg.linear.x = float(self.vx)
-        msg.linear.y = float(self.vy)
-        msg.linear.z = float(self.vz)
+        msg.linear.x = float(self.pitch)
+        msg.linear.y = float(self.roll)
+        msg.linear.z = float(self.throttle)
         msg.angular.z = float(self.yaw_rate)
         self.cmd_vel_pub.publish(msg)
 
-    def send_vehicle_command(self, command, param1=0.0, param2=0.0):
+    def send_vehicle_command(self, command, param1=0.0, param2=0.0, param3=0.0, param4=0.0):
         msg = VehicleCommand()
         msg.command = command
         msg.param1 = float(param1)
         msg.param2 = float(param2)
+        msg.param3 = float(param3)
+        msg.param4 = float(param4)
         msg.target_system = 1
         msg.target_component = 1
         msg.source_system = 255
@@ -124,9 +123,12 @@ class KeyboardTeleop(Node):
         self.vehicle_cmd_pub.publish(msg)
 
     def print_hud(self):
+        pitch_deg = self.pitch * 57.2958
+        roll_deg = self.roll * 57.2958
+        thrust_pct = int(self.throttle * 100)
         status_line = (
-            f" [STATUS] Vx: {self.vx:+4.1f} m/s | Vy: {self.vy:+4.1f} m/s | Vz: {self.vz:+4.1f} m/s | "
-            f"YawRate: {self.yaw_rate:+4.1f} rad/s | Armed: {'YES' if self.hw_armed else 'NO '} | Mode: {self.mode_str:<8}"
+            f" [STATUS] Throttle: {thrust_pct:2d}% | Pitch: {pitch_deg:+5.1f}° | Roll: {roll_deg:+5.1f}° | "
+            f"YawRate: {self.yaw_rate:+4.1f}r/s | Armed: {'YES (SPINNING)' if self.hw_armed else 'NO (IDLE)'} | Mode: {self.mode_str:<8}"
         )
         sys.stdout.write(f"\r\033[K{status_line}")
         sys.stdout.flush()
@@ -149,7 +151,7 @@ def main():
     node = KeyboardTeleop()
 
     print(BANNER)
-    print(" Press keys to command the drone. Terminal HUD updates in real-time.\n")
+    print(" Press keys to fly the drone. Real motors will spin when armed [P]!\n")
 
     try:
         while rclpy.ok():
@@ -160,69 +162,91 @@ def main():
                 node.print_hud()
                 continue
 
-            # Key Handling
             k = key.lower()
 
-            # Linear Motion
-            if k == 'w' or key == '\x1b[A':  # Forward / Up Arrow
-                node.vx = min(node.max_speed, node.vx + node.speed_step)
-            elif k == 's' or key == '\x1b[B':  # Backward / Down Arrow
-                node.vx = max(-node.max_speed, node.vx - node.speed_step)
-            elif k == 'a' or key == '\x1b[D':  # Roll Left / Left Arrow
-                node.vy = max(-node.max_speed, node.vy - node.speed_step)
-            elif k == 'd' or key == '\x1b[C':  # Roll Right / Right Arrow
-                node.vy = min(node.max_speed, node.vy + node.speed_step)
+            # Pitch Tilt (Forward / Backward)
+            if k == 'w' or key == '\x1b[A':  # Forward (Nose Down)
+                node.pitch = max(-0.40, node.pitch - 0.08)
+            elif k == 's' or key == '\x1b[B':  # Backward (Nose Up)
+                node.pitch = min(0.40, node.pitch + 0.08)
 
-            # Altitude / Throttle
-            elif k == 'i':  # Climb Up
-                node.vz = min(node.max_speed, node.vz + node.speed_step)
-            elif k == 'k':  # Descend
-                node.vz = max(-node.max_speed, node.vz - node.speed_step)
+            # Roll Tilt (Left / Right)
+            elif k == 'a' or key == '\x1b[D':  # Roll Left
+                node.roll = max(-0.40, node.roll - 0.08)
+            elif k == 'd' or key == '\x1b[C':  # Roll Right
+                node.roll = min(0.40, node.roll + 0.08)
+
+            # Throttle (Real Motor RPM)
+            elif k == 'i':  # Throttle UP
+                node.throttle = min(0.60, max(0.15, node.throttle + 0.05))
+            elif k == 'k':  # Throttle DOWN
+                node.throttle = max(0.0, node.throttle - 0.05)
 
             # Yaw Rotation
             elif k == 'j':  # Turn CCW
-                node.yaw_rate = min(2.0, node.yaw_rate + node.yaw_step)
+                node.yaw_rate = min(2.0, node.yaw_rate + 0.5)
             elif k == 'l':  # Turn CW
-                node.yaw_rate = max(-2.0, node.yaw_rate - node.yaw_step)
+                node.yaw_rate = max(-2.0, node.yaw_rate - 0.5)
 
             # Hover / Brake
             elif key == ' ':
-                node.vx = 0.0
-                node.vy = 0.0
-                node.vz = 0.0
+                node.pitch = 0.0
+                node.roll = 0.0
                 node.yaw_rate = 0.0
+                if node.hw_armed:
+                    node.throttle = 0.15  # Idle spin when armed
+                else:
+                    node.throttle = 0.0
 
             # Offboard Request
             elif k == 'o':
                 print("\n[ACTION] Requesting PX4 OFFBOARD Mode...")
                 node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
 
-            # Arming Request
+            # Arming Request (ARM + OFFBOARD + 15% Idle Throttle)
             elif k == 'p':
-                print("\n[ACTION] Sending ARM command (Force Arm 21196)...")
-                node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0, 21196.0)
+                print("\n[ACTION] Engaging OFFBOARD Mode & ARMING Drone (Motors Start at 15% Idle)...")
+                node.throttle = 0.15
+                node.pitch = 0.0
+                node.roll = 0.0
+                node.yaw_rate = 0.0
+                # Stream Offboard Mode command then Force Arm command:
+                for _ in range(3):
+                    node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0)
+                    time.sleep(0.02)
+                for _ in range(3):
+                    node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0, 21196.0)
+                    time.sleep(0.02)
+
+            # Direct Motor Pulse Test (All 4 Motors spin for 2 seconds)
+            elif k == 'm':
+                print("\n[ACTION] Firing Direct Motor Test on all 4 ESCs at 15% throttle for 2 seconds...")
+                for motor_idx in [1, 2, 3, 4]:
+                    node.send_vehicle_command(
+                        VehicleCommand.VEHICLE_CMD_DO_MOTOR_TEST,
+                        float(motor_idx),
+                        0.0,   # Throttle type 0: percentage
+                        15.0,  # 15% throttle
+                        2.0    # 2 seconds duration
+                    )
 
             # Emergency Disarm
             elif k == 'x':
-                print("\n[ACTION] Sending EMERGENCY DISARM command (Force Disarm 21196)...")
-                node.vx = 0.0
-                node.vy = 0.0
-                node.vz = 0.0
+                print("\n[ACTION] Sending EMERGENCY DISARM (Motors STOP)...")
+                node.pitch = 0.0
+                node.roll = 0.0
+                node.throttle = 0.0
                 node.yaw_rate = 0.0
                 for _ in range(5):
                     node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
-
-            # Speed Tuning
-            elif key in ['+', '=']:
-                node.max_speed = min(8.0, node.max_speed + 0.5)
-                print(f"\n[CONFIG] Max speed increased to {node.max_speed:.1f} m/s")
-            elif key in ['-', '_']:
-                node.max_speed = max(0.5, node.max_speed - 0.5)
-                print(f"\n[CONFIG] Max speed decreased to {node.max_speed:.1f} m/s")
+                    time.sleep(0.02)
 
             # Quit
             elif k == 'q' or key == '\x03':  # 'q' or Ctrl+C
-                print("\n\nExiting keyboard teleop...")
+                print("\n\nStopping teleop & disarming...")
+                node.throttle = 0.0
+                for _ in range(5):
+                    node.send_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
                 break
 
             node.print_hud()
