@@ -85,8 +85,8 @@ class MotorVerificationTest(Node):
             self.target_q = get_quaternion(-30.0, -30.0, -30.0)
         elif self.counter >= 1200 and self.counter < 1225:
             if self.counter == 1200:
-                self.get_logger().info("TEST COMPLETE. Disarming vehicle...")
-            self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
+                self.get_logger().info("TEST COMPLETE. Disarming vehicle (Force Disarm)...")
+            self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
         elif self.counter >= 1225:
             self.get_logger().info("Disarm stream complete. Exiting cleanly.")
             raise SystemExit
@@ -125,7 +125,7 @@ def main(args=None):
     except (KeyboardInterrupt, SystemExit):
         try:
             for _ in range(5):
-                node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
+                node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
                 time.sleep(0.02)
         except Exception:
             pass

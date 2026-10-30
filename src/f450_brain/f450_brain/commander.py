@@ -52,9 +52,12 @@ class DroneCommander(Node):
         elif self.counter == 100:
             self.get_logger().info("2. Firing FORCE ARM Command (30% Thrust)...")
             self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0, 21196.0)
-        elif self.counter == 500:
-            self.get_logger().info("3. Disarming and shutting down...")
-            self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
+        elif self.counter >= 500 and self.counter < 525:
+            if self.counter == 500:
+                self.get_logger().info("3. Disarming vehicle (Force Disarm)...")
+            self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
+        elif self.counter >= 525:
+            self.get_logger().info("Disarm confirmed. Shutting down cleanly.")
             raise SystemExit
         self.counter += 1
 
@@ -90,8 +93,9 @@ def main(args=None):
         rclpy.spin(node)
     except (KeyboardInterrupt, SystemExit):
         try:
-            node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0)
-            time.sleep(0.1)
+            for _ in range(5):
+                node.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 0.0, 21196.0)
+                time.sleep(0.02)
         except Exception:
             pass
     except Exception:
