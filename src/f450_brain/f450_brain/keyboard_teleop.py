@@ -69,7 +69,7 @@ BANNER = """
 ║   [A] : Fly Left      [D] : Fly Right                                    ║
 ║   [J] : Turn Left     [L] : Turn Right (Yaw Heading)                     ║
 ║                                                                          ║
-║   [P] : ARM Drone (25% Idle Motors)   [M] : Motor Pulse Test (4 ESCs)    ║
+║   [P] : ARM Drone (30% Idle Motors)   [M] : Motor Pulse Test (4 ESCs)    ║
 ║   [X] : EMERGENCY DISARM (STOP)       [Q] : Land & Exit Teleop           ║
 ║                                                                          ║
 ╚══════════════════════════════════════════════════════════════════════════╝
@@ -166,8 +166,8 @@ class KeyboardTeleop(Node):
         msg.timestamp = int(self.get_clock().now().nanoseconds / 1000)
         self.cmd_pub.publish(msg)
 
-    def trigger_arm(self, initial_throttle=0.25):
-        """Engage Offboard mode and Force-Arm drone so motors start immediately."""
+    def trigger_arm(self, initial_throttle=0.30):
+        """Engage Offboard mode and Force-Arm drone so all 4 motors start spinning reliably."""
         self.is_armed_commanded = True
         self.throttle = max(initial_throttle, self.throttle)
         for _ in range(5):
@@ -209,7 +209,7 @@ class KeyboardTeleop(Node):
 
         active_thrust = (self.is_armed_commanded or self.hw_armed or self.throttle > 0.05)
         if active_thrust and self.throttle >= 0.20:
-            eff_throttle = max(0.20, min(0.60, self.throttle))
+            eff_throttle = max(0.30, min(0.60, self.throttle))
             att_msg.thrust_body = [0.0, 0.0, -float(eff_throttle)]
         else:
             att_msg.thrust_body = [0.0, 0.0, 0.0]
@@ -298,7 +298,7 @@ def main():
             # DESCEND DOWNWARDS (Throttle DOWN) : [K] or [DOWN ARROW]
             elif k == 'k' or key == '\x1b[B':
                 if node.is_armed_commanded or node.hw_armed:
-                    node.throttle = max(0.20, node.throttle - 0.05)
+                    node.throttle = max(0.30, node.throttle - 0.05)
                 else:
                     node.throttle = 0.0
 
@@ -338,10 +338,10 @@ def main():
             elif k == 'l' or key == '\x1b[C':
                 node.yaw_rate = max(-1.5, node.yaw_rate - 0.3)
 
-            # MANUAL ARM (Motors start spinning at 25% Idle) : [P]
+            # MANUAL ARM (All 4 Motors start spinning at 30% Idle) : [P]
             elif k == 'p':
-                print("\n[ACTION] Engaging OFFBOARD Mode & ARMING Drone (Real Motors Spinning at 25% Power)...")
-                node.trigger_arm(initial_throttle=0.25)
+                print("\n[ACTION] Engaging OFFBOARD Mode & ARMING Drone (All 4 Motors Spinning at 30% Power)...")
+                node.trigger_arm(initial_throttle=0.30)
 
             # OFFBOARD MODE TOGGLE : [O]
             elif k == 'o':
@@ -352,14 +352,14 @@ def main():
 
             # DIRECT MOTOR PULSE TEST (All 4 Motors spin for 2 seconds) : [M]
             elif k == 'm':
-                print("\n[ACTION] Triggering Direct Motor Test on ESCs 1, 2, 3, 4 (20% for 2s)...")
+                print("\n[ACTION] Triggering Direct Motor Test on ESCs 1, 2, 3, 4 (25% for 2s)...")
                 for motor_idx in [1, 2, 3, 4]:
                     for _ in range(3):
                         node.send_cmd(
                             VehicleCommand.VEHICLE_CMD_DO_MOTOR_TEST,
                             p1=float(motor_idx),
                             p2=0.0,   # Throttle type 0: percentage
-                            p3=20.0,  # 20% throttle
+                            p3=25.0,  # 25% throttle (reliable spin threshold for all ESCs)
                             p4=2.0    # 2 seconds duration
                         )
                         time.sleep(0.01)
