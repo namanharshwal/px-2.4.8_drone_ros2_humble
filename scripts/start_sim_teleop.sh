@@ -29,7 +29,7 @@ echo "========================================================================"
 if ! pgrep -x "MicroXRCEAgent" > /dev/null; then
     echo "[INFO] Starting MicroXRCEAgent on /dev/ttyAMA0 @ 921600 baud..."
     sudo chmod 666 /dev/ttyAMA0
-    /usr/local/bin/MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600 &
+    /usr/local/bin/MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600 -v 4 &
     AGENT_PID=$!
     sleep 1
 else
