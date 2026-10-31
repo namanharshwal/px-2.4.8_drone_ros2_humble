@@ -15,10 +15,12 @@
 F450 3D Digital Twin Simulation & Avionics Visualization Engine
 Author: Naman Harshwal
 
-Provides a lightweight, real-time 6-DOF Digital Twin Simulation with 3D RViz2 visualization:
+Provides a responsive, realistic 6-DOF Digital Twin Simulation with 3D RViz2 visualization:
 - Subscribes to /cmd_vel from the keyboard teleop flight controller
-- Subscribes to live Pixhawk IMU attitude (/fmu/out/vehicle_attitude) to reflect real physical drone tilts
-- Subscribes to Pixhawk /fmu/out/vehicle_status to sync arming state
+- Strict ground clamp: locks horizontal drift to 0 while on the ground (no sliding on the floor!)
+- Direct upward lift: throttle > 25% produces clean, immediate vertical climb
+- Smooth 6-DOF airborne flight: forward (W), backward (S), left (A), right (D), and yaw turn (J/L)
+- Subscribes to live Pixhawk IMU attitude (/fmu/out/vehicle_attitude) and status (/fmu/out/vehicle_status)
 - Broadcasts dynamic TF tree: 'map' -> 'odom' -> 'base_footprint'
 - Publishes /joint_states for continuous 3D propeller rotation proportional to motor thrust
 - Records and displays flight trajectory on /f450/path
@@ -41,7 +43,7 @@ from rclpy.executors import ExternalShutdownException
 from px4_msgs.msg import VehicleAttitude, VehicleStatus
 
 def euler_to_quaternion(roll, pitch, yaw):
-    """Convert Euler angles to quaternion [w, x, y, z]."""
+    """Convert Euler angles (rad) to quaternion [w, x, y, z] in ROS ENU frame."""
     cr = math.cos(roll * 0.5)
     sr = math.sin(roll * 0.5)
     cp = math.cos(pitch * 0.5)
@@ -132,35 +134,81 @@ class F450SimEngine(Node):
         stamp = now.to_msg()
         dt = self.dt
 
-        # 1. Physics & Kinematics Update (Simulation)
+        # 1. Update Heading (Yaw)
         self.euler[2] += self.cmd_yaw_rate * dt
         yaw = self.euler[2]
 
-        forward_acc = -math.sin(self.cmd_pitch) * 9.81
-        side_acc = math.sin(self.cmd_roll) * 9.81
-        vertical_acc = (self.cmd_throttle - 0.25) * 8.0 if self.cmd_throttle > 0.05 else -4.9
+        # 2. Flight Kinematics & Strict Ground Clamp Logic
+        is_armed = (self.hw_armed or self.cmd_throttle >= 0.20)
 
-        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
-        world_ax = forward_acc * cos_yaw - side_acc * sin_yaw
-        world_ay = forward_acc * sin_yaw + side_acc * cos_yaw
+        if not is_armed or self.cmd_throttle < 0.15:
+            # Drone is DISARMED / EMERGENCY STOP
+            if self.pos[2] > 0.02:
+                # Descending / falling smoothly to ground
+                self.vel[2] = max(-2.5, self.vel[2] - 9.81 * dt)
+                self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
+            else:
+                # Resting firmly on landing gear - zero horizontal drift!
+                self.pos[2] = 0.0
+                self.vel = [0.0, 0.0, 0.0]
+                self.euler[0] = 0.0
+                self.euler[1] = 0.0
 
-        # Damped integration
-        self.vel[0] = 0.95 * self.vel[0] + world_ax * dt
-        self.vel[1] = 0.95 * self.vel[1] + world_ay * dt
-        self.vel[2] = 0.95 * self.vel[2] + vertical_acc * dt
+        elif self.cmd_throttle <= 0.25:
+            # Idle throttle on the ground (armed at 25% power)
+            if self.pos[2] > 0.02:
+                # Smooth landing descent
+                self.vel[2] = -0.6
+                self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
+            else:
+                # Firmly locked on the ground - NO sideways sliding!
+                self.pos[2] = 0.0
+                self.vel = [0.0, 0.0, 0.0]
+                self.euler[0] = 0.0
+                self.euler[1] = 0.0
 
-        # Position integration
-        self.pos[0] += self.vel[0] * dt
-        self.pos[1] += self.vel[1] * dt
-        self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
+        else:
+            # Throttle > 25% (CLIMB & AIRBORNE 3D FLIGHT!)
+            # Target vertical climb velocity scales directly with throttle command:
+            # 30% -> +0.5 m/s, 35% -> +1.0 m/s, 40% -> +1.5 m/s, 50% -> +2.5 m/s, 60% -> +3.5 m/s
+            target_climb_speed = (self.cmd_throttle - 0.25) * 10.0
+            self.vel[2] = 0.80 * self.vel[2] + 0.20 * target_climb_speed
+            self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
 
-        # Attitude Orientation: Prioritize real hardware IMU if connected!
-        if self.hw_attitude_available:
+            # Horizontal velocity is only active when airborne:
+            if self.pos[2] > 0.02:
+                # In body frame:
+                # Pitch forward (cmd_pitch < 0) produces positive forward body velocity
+                # Roll right (cmd_roll > 0) produces positive rightward body velocity
+                v_body_forward = - (self.cmd_pitch / 0.35) * 2.8
+                v_body_right = (self.cmd_roll / 0.35) * 2.8
+
+                # Transform body velocity to world coordinates using yaw heading:
+                cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+                v_world_x = v_body_forward * cos_yaw - v_body_right * sin_yaw
+                v_world_y = v_body_forward * sin_yaw + v_body_right * cos_yaw
+
+                self.vel[0] = 0.80 * self.vel[0] + 0.20 * v_world_x
+                self.vel[1] = 0.80 * self.vel[1] + 0.20 * v_world_y
+
+                self.pos[0] += self.vel[0] * dt
+                self.pos[1] += self.vel[1] * dt
+
+                self.euler[0] = self.cmd_roll
+                self.euler[1] = self.cmd_pitch
+            else:
+                self.vel[0] = 0.0
+                self.vel[1] = 0.0
+
+        # 3. Attitude Orientation Quaternion
+        if self.pos[2] <= 0.02 and self.hw_attitude_available:
+            # On bench, mirror the physical Pixhawk IMU
             self.quat = self.hw_quat
         else:
-            self.quat = euler_to_quaternion(self.cmd_roll, self.cmd_pitch, self.euler[2])
+            # In flight, reflect commanded 3D attitude tilt and heading
+            self.quat = euler_to_quaternion(self.euler[0], self.euler[1], self.euler[2])
 
-        # 2. Broadcast Dynamic TF tree: map -> odom -> base_footprint
+        # 4. Broadcast Dynamic TF tree: map -> odom -> base_footprint
         t_odom = TransformStamped()
         t_odom.header.stamp = stamp
         t_odom.header.frame_id = 'map'
@@ -181,7 +229,7 @@ class F450SimEngine(Node):
         t_base.transform.rotation.z = float(self.quat[3])
         self.tf_broadcaster.sendTransform(t_base)
 
-        # 3. Publish Odometry & Pose
+        # 5. Publish Odometry & Pose
         pose_stamped = PoseStamped()
         pose_stamped.header.stamp = stamp
         pose_stamped.header.frame_id = 'map'
@@ -201,7 +249,7 @@ class F450SimEngine(Node):
         odom_msg.twist.twist.linear.z = float(self.vel[2])
         self.odom_pub.publish(odom_msg)
 
-        # 4. Flight Path History
+        # 6. Flight Path History
         if len(self.path_msg.poses) == 0 or (
             abs(self.pos[0] - self.path_msg.poses[-1].pose.position.x) > 0.05 or
             abs(self.pos[1] - self.path_msg.poses[-1].pose.position.y) > 0.05 or
@@ -213,10 +261,10 @@ class F450SimEngine(Node):
                 self.path_msg.poses.pop(0)
             self.path_pub.publish(self.path_msg)
 
-        # 5. Spin 3D Propellers proportional to motor throttle
-        is_active = (self.cmd_throttle > 0.05 or self.hw_armed or self.pos[2] > 0.01)
-        if is_active:
-            spin_speed = 0.4 + 1.6 * max(0.20, self.cmd_throttle)
+        # 7. Spin 3D Propellers proportional to motor throttle
+        is_prop_active = (self.cmd_throttle >= 0.20 or self.hw_armed or self.pos[2] > 0.01)
+        if is_prop_active:
+            spin_speed = 0.5 + 1.8 * max(0.25, self.cmd_throttle)
             self.prop_angle = (self.prop_angle + spin_speed) % (2.0 * math.pi)
 
         js = JointState()
