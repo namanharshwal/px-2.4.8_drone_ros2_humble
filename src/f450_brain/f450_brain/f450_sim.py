@@ -154,8 +154,8 @@ class F450SimEngine(Node):
                 self.euler[0] = 0.0
                 self.euler[1] = 0.0
 
-        elif self.cmd_throttle <= 0.25:
-            # Idle throttle on the ground (armed at 25% power)
+        elif self.cmd_throttle <= 0.30:
+            # Idle throttle on the ground (armed at 30% power)
             if self.pos[2] > 0.02:
                 # Smooth landing descent
                 self.vel[2] = -0.6
@@ -168,11 +168,19 @@ class F450SimEngine(Node):
                 self.euler[1] = 0.0
 
         else:
-            # Throttle > 25% (CLIMB & AIRBORNE 3D FLIGHT!)
-            # Target vertical climb velocity scales directly with throttle command:
-            # 30% -> +0.5 m/s, 35% -> +1.0 m/s, 40% -> +1.5 m/s, 50% -> +2.5 m/s, 60% -> +3.5 m/s
-            target_climb_speed = (self.cmd_throttle - 0.25) * 10.0
-            self.vel[2] = 0.80 * self.vel[2] + 0.20 * target_climb_speed
+            # Throttle > 30% (AIRBORNE 3D FLIGHT!)
+            # Hover deadband (33% to 37%): holds altitude steadily
+            if 0.33 <= self.cmd_throttle <= 0.37:
+                self.vel[2] = 0.85 * self.vel[2]
+            elif self.cmd_throttle > 0.37:
+                # Climb upwards
+                target_climb = (self.cmd_throttle - 0.37) * 8.0
+                self.vel[2] = 0.80 * self.vel[2] + 0.20 * target_climb
+            else:
+                # Gentle descent (30% to 33%)
+                target_climb = (self.cmd_throttle - 0.33) * 4.0
+                self.vel[2] = 0.80 * self.vel[2] + 0.20 * target_climb
+
             self.pos[2] = max(0.0, self.pos[2] + self.vel[2] * dt)
 
             # Horizontal velocity is only active when airborne:
