@@ -1,13 +1,14 @@
 # Autonomous F450 Quadcopter with Pixhawk 2.4.8, ROS 2 Humble & 3D Digital Twin Simulation
-### Complete Hardware Build, Software Architecture, 3D RViz Simulation, Real-Time Hardware Teleoperation, & Engineering Retrospective
+## The Complete Engineering Field Manual: Hardware Build, 6-DOF Simulation Engine, Real-Time Hardware Teleoperation, Middleware Architecture, & 10-Month Retrospective
 
 [![ROS 2](https://img.shields.io/badge/ROS%202-Humble%20Hawksbill-22314E?style=flat-square&logo=ros)](https://docs.ros.org/en/humble/)
 [![PX4 Autopilot](https://img.shields.io/badge/PX4-v1.14%20(FMUv3)-0073E6?style=flat-square&logo=cplusplus)](https://px4.io/)
 [![Hardware](https://img.shields.io/badge/Flight%20Controller-Pixhawk%202.4.8-brightgreen?style=flat-square)](https://docs.px4.io/main/en/flight_controller/pixhawk.html)
 [![Companion](https://img.shields.io/badge/Companion%20PC-Raspberry%20Pi%204B-red?style=flat-square&logo=raspberrypi)](https://www.raspberrypi.com/)
 [![Digital Twin](https://img.shields.io/badge/Simulation-RViz2%20Digital%20Twin-blueviolet?style=flat-square)](https://github.com/namanharshwal/px-2.4.8_drone_ros2_humble)
-[![Teleop](https://img.shields.io/badge/Teleoperation-Interactive%20HUD%206--DOF-yellow?style=flat-square)](https://github.com/namanharshwal/px-2.4.8_drone_ros2_humble)
+[![Teleoperation](https://img.shields.io/badge/Teleoperation-Interactive%20HUD%206--DOF-yellow?style=flat-square)](https://github.com/namanharshwal/px-2.4.8_drone_ros2_humble)
 [![Middleware](https://img.shields.io/badge/Middleware-Micro--XRCE--DDS-orange?style=flat-square)](https://github.com/eProsima/Micro-XRCE-DDS-Agent)
+[![Fast-DDS](https://img.shields.io/badge/DDS-eProsima%20Fast--DDS-blue?style=flat-square)](https://www.eprosima.com/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-lightgrey?style=flat-square)](LICENSE)
 
 ---
@@ -22,77 +23,89 @@
 > [!CAUTION]
 > ### CRITICAL BENCH TESTING SAFETY DIRECTIVE:
 > **ALWAYS REMOVE ALL 4 PROPELLERS BEFORE RUNNING BENCH TESTS!**  
-> Nodes in this package command raw MAVLink actuator test overrides and force-arming sequences (`param2=21196.0`) with up to 35% throttle and 30° roll/pitch attitude tilts. If propellers are attached while testing on a bench or indoors, the drone will violently flip, causing severe physical lacerations, severed wiring, or permanent motor damage.
+> Nodes in this package command raw MAVLink actuator overrides and force-arming sequences (`param2=21196.0`) with up to 35% throttle and 30° roll/pitch attitude tilts. If propellers are attached while testing on a bench or indoors, the drone will violently flip, causing severe physical lacerations, severed wiring, or permanent motor damage.
 
 ---
 
 ## Table of Contents
-1. [Project Overview & Hybrid Architecture](#1-project-overview--hybrid-architecture)
+1. [Executive Summary & System Architecture](#1-executive-summary--system-architecture)
 2. [Complete Hardware Bill of Materials (BOM)](#2-complete-hardware-bill-of-materials-bom)
 3. [Physical Assembly & Mechanical Construction](#3-physical-assembly--mechanical-construction)
 4. [Electrical Wiring & Interconnect Diagrams](#4-electrical-wiring--interconnect-diagrams)
 5. [Raspberry Pi 4 Operating System & Environment Hardening](#5-raspberry-pi-4-operating-system--environment-hardening)
 6. [Micro-XRCE-DDS Middleware Architecture](#6-micro-xrce-dds-middleware-architecture)
-7. [PX4 Firmware & QGroundControl Configuration Guide](#7-px4-firmware--qgroundcontrol-configuration-guide)
+7. [PX4 Firmware & QGroundControl Configuration Master Guide](#7-px4-firmware--qgroundcontrol-configuration-master-guide)
 8. [3D Digital Twin Simulation & Hardware-in-the-Loop Architecture](#8-3d-digital-twin-simulation--hardware-in-the-loop-architecture)
 9. [Interactive Keyboard Teleoperation & Avionics HUD](#9-interactive-keyboard-teleoperation--avionics-hud)
 10. [Synchronized 4-Motor Arming & PID Windup Prevention](#10-synchronized-4-motor-arming--pid-windup-prevention)
-11. [The 10-Month Engineering Retrospective (Failures, Root Causes & Fixes)](#11-the-10-month-engineering-retrospective-failures-root-causes--fixes)
-12. [ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)](#12-ros-2-package-architecture-f450_brain--px4_msgs)
-13. [Bench Testing & Flight Verification Protocol](#13-bench-testing--flight-verification-protocol)
-14. [Individual Motor Isolation & Diagnostic Suite](#14-individual-motor-isolation--diagnostic-suite)
-15. [Intelligent Engineering Q&A Knowledge Base](#15-intelligent-engineering-qa-knowledge-base)
-16. [Troubleshooting Runbook](#16-troubleshooting-runbook)
-17. [Quick Start & One-Click Launchers](#17-quick-start--one-click-launchers)
-18. [License & Author](#18-license--author)
+11. [The 10-Month Engineering Retrospective (7 Detailed Case Studies)](#11-the-10-month-engineering-retrospective-7-detailed-case-studies)
+12. [ROS 2 Workspace Architecture & Node Reference](#12-ros-2-workspace-architecture--node-reference)
+13. [Comprehensive Command Reference Manual (Every Command with Descriptions)](#13-comprehensive-command-reference-manual-every-command-with-descriptions)
+14. [Bench Testing & Flight Verification Protocol](#14-bench-testing--flight-verification-protocol)
+15. [Individual Motor Isolation & Diagnostic Suite](#15-individual-motor-isolation--diagnostic-suite)
+16. [Physical Pre-Flight Checklist & Safety Protocols](#16-physical-pre-flight-checklist--safety-protocols)
+17. [Intelligent Engineering Q&A Knowledge Base](#17-intelligent-engineering-qa-knowledge-base)
+18. [Troubleshooting Runbook](#18-troubleshooting-runbook)
+19. [Quick Start & One-Click Launchers](#19-quick-start--one-click-launchers)
+20. [License, Copyright & Authorship](#20-license-copyright--authorship)
 
 ---
 
-## 1. Project Overview & Hybrid Architecture
+## 1. Executive Summary & System Architecture
 
-This repository hosts the complete, battle-tested autonomous software and hardware implementation for an **F450 Quadcopter** managed by a **Pixhawk 2.4.8 (FMUv3)** flight controller paired with an onboard **Raspberry Pi 4 Model B (4GB)** companion computer running **Ubuntu 22.04 LTS** and **ROS 2 Humble**.
+This repository hosts the complete, battle-tested autonomous software and hardware implementation for an **F450 Quadcopter** managed by a **Pixhawk 2.4.8 (FMUv3)** flight controller paired with an onboard **Raspberry Pi 4 Model B (4GB)** companion computer running **Ubuntu 22.04 LTS (Jammy Jellyfish)** and **ROS 2 Humble**.
 
-### Unified Hybrid Pipeline: Real Hardware & 3D Digital Twin Simulation
-The architecture bridges physical drone hardware with a live **3D Digital Twin Simulation in RViz2**:
-- **Physical Drone**: Communicates directly via high-speed UART (`/dev/ttyAMA0` at 921,600 baud) using **eProsima Micro-XRCE-DDS** bridged to PX4 uORB topics.
-- **3D Digital Twin Engine**: Simulates realistic 6-DOF quadcopter physics with ground clamp, inertia, climb rates, and yaw-aligned world frame translation in RViz2.
-- **Synchronized Teleoperation**: A single interactive keyboard node (`keyboard_teleop.py`) streams commands simultaneously to the physical Pixhawk flight controller (arming, attitude setpoints, thrust) and to the simulation engine, providing synchronized dual-world flight control.
+### Unified Hybrid Pipeline: Physical Hardware + 3D RViz Digital Twin
+The system unites physical multirotor avionics with a real-time **3D Digital Twin Simulation in RViz2**:
+- **Hardware Layer**: High-speed Broadcom UART (`/dev/ttyAMA0` at 921,600 baud) bridges the Pixhawk's internal uORB messaging bus directly to ROS 2 Humble using the **eProsima Micro-XRCE-DDS Agent**.
+- **Simulation Layer**: A customized 6-DOF dynamic engine (`f450_sim.py`) mirrors the physical Pixhawk IMU attitude in real time, applies realistic multirotor climb dynamics, strict ground clamping ($Z \le 0.02\,\text{m}$), and dynamic yaw-aligned coordinate translation.
+- **Control Layer**: An interactive keyboard teleoperation HUD (`keyboard_teleop.py`) streams commands at 50Hz simultaneously to the physical Pixhawk flight controller (arming, throttle, attitude) and to the simulation visualizer.
 
 ```mermaid
 flowchart TD
-    subgraph INPUT["Interactive Teleoperation (HUD)"]
-        KEY["keyboard_teleop.py (50Hz)"]
-        USER["Keyboard Keystrokes\n[W, A, S, D, I, K, J, L, SPACE, P, X]"] --> KEY
+    subgraph USER_INPUT["1. User Teleoperation Interface"]
+        KEY["keyboard_teleop.py\n(50Hz Dedicated Background Thread)"]
+        INPUTS["Keystroke Inputs\n[SPACE] Auto-Takeoff (1.5m) / Hover\n[I / UP] Climb (+5% Throttle)\n[K / DOWN] Descend (-5% Throttle)\n[W / S] Fly Forward / Backward\n[A / D] Fly Left / Right\n[J / L] Yaw Turn CCW / CW\n[P] Manual Arm (30% Idle)\n[M] ESC Pulse Test (4 Motors)\n[X] EMERGENCY DISARM"] --> KEY
     end
 
-    subgraph HARDWARE["Physical Drone Hardware"]
-        FC["Pixhawk 2.4.8 (PX4 v1.14)"]
-        ESC1["ESC 1 (MAIN 1)"] --> M1["Motor 1 (Front-Right CCW)"]
-        ESC2["ESC 2 (MAIN 2)"] --> M2["Motor 2 (Rear-Left CCW)"]
-        ESC3["ESC 3 (MAIN 3)"] --> M3["Motor 3 (Front-Left CW)"]
-        ESC4["ESC 4 (MAIN 4)"] --> M4["Motor 4 (Rear-Right CW)"]
-        FC --> ESC1 & ESC2 & ESC3 & ESC4
-        IMU["Onboard IMU & EKF2"] --> FC
+    subgraph RPI4["2. Raspberry Pi 4 Companion Computer"]
+        AGENT["Micro-XRCE-DDS Agent\n(Fast-DDS Domain 0, /dev/ttyAMA0 @ 921600 baud)"]
+        ROBOT_STATE["robot_state_publisher\n(URDF Model: f450.urdf)"]
+        SIM_ENG["f450_sim.py Simulation Engine\n- Strict Ground Clamp (Z <= 0.02m)\n- Dynamic Yaw-Aligned Translation\n- Aerodynamic Thrust-to-Climb Physics"]
+        RVIZ["RViz2 3D Visualizer\n- Dynamic TF2 Tree (map -> odom -> base_footprint)\n- Real-time 3D Pose, Attitude & Path"]
+        
+        SIM_ENG --> ROBOT_STATE --> RVIZ
+        KEY -->|"/cmd_vel (Twist 50Hz)"| SIM_ENG
+        SIM_ENG -->|"/f450/odom (Odometry)"| KEY
     end
 
-    subgraph BRIDGE["Hardware Bridge (Pi 4 UART @ 921600 baud)"]
-        AGENT["MicroXRCEAgent\n(Domain 0, serial /dev/ttyAMA0)"]
+    subgraph SERIAL_LINK["3. High-Speed Serial Hardware Link"]
+        TX_RX["Broadcom PL011 UART (/dev/ttyAMA0)\nPin 8 (TXD) <---> TELEM2 RX (Pin 3)\nPin 10 (RXD) <---> TELEM2 TX (Pin 2)\nPin 6 (GND) <---> TELEM2 GND (Pin 6)"]
     end
 
-    subgraph SIMULATION["3D Digital Twin Simulation"]
-        SIM["f450_sim.py (20Hz Engine)\n- Strict Ground Clamp (Z <= 0.02m)\n- Dynamic 6-DOF Body-to-World Translation\n- Throttle Climb & Hover Aerodynamics"]
-        RVIZ["RViz2 3D Visualizer\n- F450 URDF Robot State Publisher\n- Real-time TF2 Tree (map -> odom -> base_footprint)\n- 3D Attitude & Path Trajectory"]
-        SIM --> RVIZ
+    subgraph PIXHAWK["4. Pixhawk 2.4.8 (FMUv3 / PX4 v1.14)"]
+        CLIENT["Micro-XRCE-DDS Client (uORB)"]
+        EKF["EKF2 Sensor Fusion (Dual IMU, Baro, Mag)"]
+        MIXER["Control Allocation & Actuator Mixer"]
+        
+        M1["Motor 1 (Front-Right CCW)"]
+        M2["Motor 2 (Rear-Left CCW)"]
+        M3["Motor 3 (Front-Left CW)"]
+        M4["Motor 4 (Rear-Right CW)"]
+        
+        MIXER -->|MAIN 1| M1
+        MIXER -->|MAIN 2| M2
+        MIXER -->|MAIN 3| M3
+        MIXER -->|MAIN 4| M4
     end
 
     KEY -->|"/fmu/in/offboard_control_mode (50Hz)\n/fmu/in/vehicle_attitude_setpoint (50Hz)\n/fmu/in/vehicle_command (Arm/Disarm)"| AGENT
-    AGENT -->|"Serial Frame @ 921600"| FC
-    FC -->|"Telemetry (/fmu/out/vehicle_attitude, /fmu/out/vehicle_status)"| AGENT
+    AGENT <--> TX_RX <--> CLIENT
+    CLIENT --> MIXER
+    EKF --> CLIENT
+    CLIENT -->|"/fmu/out/vehicle_attitude\n/fmu/out/vehicle_status"| AGENT
     AGENT -->|"/fmu/out/vehicle_attitude"| KEY
-    AGENT -->|"/fmu/out/vehicle_attitude"| SIM
-
-    KEY -->|"/cmd_vel (Twist 50Hz)"| SIM
-    SIM -->|"/f450/odom"| KEY
+    AGENT -->|"/fmu/out/vehicle_attitude"| SIM_ENG
 ```
 
 ---
@@ -101,9 +114,9 @@ flowchart TD
 
 | Component | Model / Specification | Purpose & Technical Description |
 | :--- | :--- | :--- |
-| **Airframe** | DJI F450 FlameWheel Replica | 450mm diagonal wheelbase; composite polyamide arms; integrated copper PDB on center plates. |
+| **Airframe** | DJI F450 FlameWheel Replica | 450mm diagonal wheelbase; composite polyamide arms; integrated copper PDB on bottom plate. |
 | **Flight Controller** | Pixhawk 2.4.8 (FMUv3) | 32-bit STM32F427 Cortex-M4 with FPU (168MHz / 256KB RAM / 2MB Flash), dual IMU, MS5611 barometer. |
-| **Companion Computer**| Raspberry Pi 4 Model B (4GB) | Broadcom BCM2711 quad-core Cortex-A72 @ 1.5GHz; 64-bit Ubuntu 22.04 LTS; 4GB active swap. |
+| **Companion Computer**| Raspberry Pi 4 Model B (4GB) | Broadcom BCM2711 quad-core Cortex-A72 @ 1.5GHz; 64-bit Ubuntu 22.04 LTS; 4GB active swap space. |
 | **Motors** | 4x 2212 920KV Brushless DC | Rated for 3S–4S LiPo; 920 RPM/V; self-tightening CW/CCW aluminum threaded prop nuts. |
 | **ESCs** | 4x 30A SimonK / BLHeli | High-frequency PWM input connected to Pixhawk MAIN OUT 1–4; capable of 40A burst. |
 | **Propellers** | 1045 (10x4.5 inch) | 2x Clockwise (CW) + 2x Counter-Clockwise (CCW). *Never installed during bench tests!* |
@@ -281,7 +294,7 @@ sequenceDiagram
 
 ---
 
-## 7. PX4 Firmware & QGroundControl Configuration Guide
+## 7. PX4 Firmware & QGroundControl Configuration Master Guide
 
 ### 7.1 Flashing Firmware on Pixhawk 2.4.8 (FMUv3)
 Pixhawk 2.4.8 is built on the **FMUv3** hardware definition (STM32F427 microcontroller). When flashing via QGroundControl:
@@ -289,11 +302,35 @@ Pixhawk 2.4.8 is built on the **FMUv3** hardware definition (STM32F427 microcont
 2. Open QGroundControl → Vehicle Setup → Firmware.
 3. Select **PX4 Flight Stack v1.14** (Default / Stable).
 
-### 7.2 Master Parameter Configuration Matrix
+### 7.2 Sensor Calibrations (Step-by-Step with Screenshots)
+
+| Compass Magnetometer Calibration | 6-Orientation Accelerometer Calibration |
+| :---: | :---: |
+| ![Compass Calibration](docs/images/image_86eef3.jpg) | ![Accelerometer Calibration](docs/images/image_86e6d7.jpg) |
+| *Rotating vehicle around all 3 axes away from metal* | *Step-by-step 6-sided orientation leveling* |
+
+| Compass Calibration Progress | Accelerometer Calibration Alignment |
+| :---: | :---: |
+| ![Compass Progress](docs/images/image_86eebc.jpg) | ![Accelerometer Level](docs/images/image_86e3d3.jpg) |
+| *Full axis rotation until all bars turn green* | *Placing drone flat on level reference plane* |
+
+1. **Compass / Magnetometer Calibration**:
+   - Navigate to **Sensors → Compass**.
+   - Click **Calibrate** and rotate the drone around all 3 axes (Roll, Pitch, Yaw) until all progress bars turn green.
+   - *Crucial*: Perform this calibration in the center of an open room, far from laptop power supplies, metal table legs, and high-power cables.
+2. **Accelerometer Calibration**:
+   - Navigate to **Sensors → Accelerometer**.
+   - Place the drone sequentially in the 6 designated orientations: Level, Left Side, Right Side, Nose Down, Nose Up, Back. Hold still at each position until QGroundControl chimes.
+3. **Level Horizon Calibration**:
+   - Place the drone on a perfectly level surface and click **Level Horizon**.
+4. **Radio Calibration**:
+   - Turn on the FlySky FS-i6 transmitter. Move all sticks and flip all switches to their extreme limits until the blue bars trace the complete range (1000 µs – 2000 µs).
+
+### 7.3 Master Parameter Configuration Matrix
 
 Configure the following parameters in QGroundControl (Parameters tab):
 
-| Parameter | Configured Value | Category | Purpose & Impact |
+| Parameter | Configured Value | Category | Purpose & Technical Impact |
 | :--- | :--- | :--- | :--- |
 | `UXRCE_DDS_CFG` | `TELEM 2` | Serial Communication | Binds internal Micro-XRCE-DDS client to the physical TELEM2 UART port. |
 | `SER_TEL2_BAUD` | `921600` | Serial Communication | High-speed baud rate required for 50Hz setpoints and telemetry streaming. |
@@ -364,7 +401,7 @@ When a multirotor is armed on a desk or bench in Offboard Attitude mode (`Vehicl
 
 ---
 
-## 11. The 10-Month Engineering Retrospective (Failures, Root Causes & Fixes)
+## 11. The 10-Month Engineering Retrospective (7 Detailed Case Studies)
 
 ### Case Study 1: The "Silent Handshake" & TX/RX Crossover Trap
 - **Symptom**: `MicroXRCEAgent` opened `/dev/ttyAMA0` but never established a session.
@@ -403,7 +440,7 @@ When a multirotor is armed on a desk or bench in Offboard Attitude mode (`Vehicl
 
 ---
 
-## 12. ROS 2 Package Architecture (`f450_brain` & `px4_msgs`)
+## 12. ROS 2 Workspace Architecture & Node Reference
 
 ```
 robox_ws/
@@ -439,25 +476,153 @@ robox_ws/
 
 ---
 
-## 13. Bench Testing & Flight Verification Protocol
+## 13. Comprehensive Command Reference Manual (Every Command with Descriptions)
 
-### Step 1: Pre-Power Inspection
-1. **Confirm all 4 propellers are removed from the drone.**
-2. Connect Pixhawk TELEM2 to RPi Pins 6 (GND), 8 (TXD), and 10 (RXD).
-3. Connect the 3S/4S LiPo battery. ESCs will chime.
+### A. One-Click & Launch Commands
+
+```bash
+# 1. Complete Hybrid Launch (MicroXRCEAgent + 3D Simulation + RViz2 + Interactive Teleop HUD)
+/home/drone/robox_ws/scripts/start_sim_teleop.sh
+# Description: Starts the serial bridge at 921600 baud, launches the robot state publisher with f450.urdf,
+# starts the 20Hz 6-DOF simulation engine, opens RViz2, and launches the interactive keyboard teleop HUD.
+
+# 2. Standalone Simulation & RViz Bringup
+ros2 launch f450_brain f450_sim_teleop.launch.py
+# Description: Launches the 3D digital twin engine and RViz2 visualization without the teleop HUD terminal.
+
+# 3. Standalone Keyboard Teleop HUD
+ros2 run f450_brain keyboard_teleop
+# Description: Launches the interactive 50Hz Offboard teleoperation node with terminal avionics HUD.
+
+# 4. Standalone Micro-XRCE-DDS Serial Bridge
+/usr/local/bin/MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600 -v 4
+# Description: Launches the serial DDS bridge over Raspberry Pi UART0 at 921,600 baud with verbose logging level 4.
+```
+
+### B. Workspace Build & Compilation Commands
+
+```bash
+# 1. Full Workspace Build with Symlink Install
+cd /home/drone/robox_ws
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install
+# Description: Compiles all packages in the workspace and creates symbolic links to Python scripts
+# so modifications execute immediately without requiring a re-build.
+
+# 2. Targeted Build of f450_brain Only (Fast Incremental Build)
+colcon build --symlink-install --packages-select f450_brain
+# Description: Skips px4_msgs and only re-compiles the f450_brain package in under 10 seconds.
+
+# 3. Clean Workspace Rebuild
+rm -rf build/ install/ log/
+colcon build --symlink-install
+# Description: Removes cached build artifacts and compiles the entire workspace from scratch.
+```
+
+### C. ROS 2 Telemetry & Topic Inspection Commands
+
+```bash
+# 1. List All Active ROS 2 Topics
+export ROS_DOMAIN_ID=0
+ros2 topic list
+# Description: Lists all active DDS topics, including /cmd_vel, /f450/odom, /tf, and /fmu/... topics.
+
+# 2. Inspect Live Vehicle Status from Pixhawk
+ros2 topic echo /fmu/out/vehicle_status --once
+# Description: Displays the current arming state (1=STANDBY, 2=ARMED), safety switch state, and battery status.
+
+# 3. Inspect Live Physical IMU Attitude Quaternion
+ros2 topic echo /fmu/out/vehicle_attitude --once
+# Description: Displays the live 3D orientation quaternion [w, x, y, z] from the Pixhawk EKF2 estimator.
+
+# 4. Inspect Teleoperation Commands Published to Sim
+ros2 topic echo /cmd_vel --once
+# Description: Shows current commanded linear velocity (pitch, roll, throttle) and angular yaw rate.
+
+# 5. Measure Publishing Rate of Offboard Stream
+ros2 topic hz /fmu/in/vehicle_attitude_setpoint
+# Description: Verifies that the offboard attitude stream is publishing at exactly 50Hz (20ms interval).
+
+# 6. Start / Verify ROS 2 Background Discovery Daemon
+ros2 daemon status
+ros2 daemon start
+# Description: Checks status of the ROS 2 discovery daemon and restarts it if topics fail to list.
+```
+
+### D. Motor Diagnostic & Bench Testing Commands
+
+```bash
+# 1. Interactive 4-Motor Isolation & ESC Threshold Diagnostic Suite
+python3 /home/drone/robox_ws/scripts/diagnose_motors.py
+# Description: Sequentially pulses Motor 1 (FR), Motor 2 (RL), Motor 3 (FL), and Motor 4 (RR)
+# at 25% power for 2 seconds each, then pulses all 4 together at 30% to verify ESC startup thresholds.
+
+# 2. Sequential Motor Rotation Test (MAVLink Cmd 209)
+ros2 run f450_brain direct_sequence
+# Description: Pulses each motor channel at 15% throttle for 3 seconds sequentially without arming.
+
+# 3. Attitude Tilt 4-Corner Motor Verification
+ros2 run f450_brain verify_motors
+# Description: Force-arms the vehicle and commands 4 sequential 30° roll/pitch tilts to verify mixer response.
+
+# 4. Autonomous 10-Second Offboard Thrust Test
+ros2 run f450_brain commander
+# Description: Streams 50Hz Offboard heartbeats, force-arms, holds 30% upward thrust for 10s, and disarms safely.
+```
+
+### E. Linux Kernel, Serial & Hardware Debugging Commands
+
+```bash
+# 1. Check Serial Port Availability and Locks
+ls -la /dev/ttyAMA0
+sudo fuser /dev/ttyAMA0
+# Description: Displays permissions and checks if any rogue process is locking the serial port.
+
+# 2. Kill Any Process Locking the Serial Port
+sudo fuser -k -9 /dev/ttyAMA0
+# Description: Force-terminates any orphaned process holding a file descriptor on /dev/ttyAMA0.
+
+# 3. Verify Active Serial Baud Rate and Settings
+stty -F /dev/ttyAMA0
+# Description: Displays the active serial baud rate, parity, stop bits, and flow control on UART0.
+
+# 4. Verify Active Linux Swap Space
+free -h
+swapon --show
+# Description: Confirms that the 4.0 GiB persistent swap file (/swapfile) is active and protecting against OOM.
+
+# 5. Inspect Active Flight Processes
+ps aux | grep -E 'MicroXRCE|ros|rviz|f450'
+# Description: Displays PIDs, CPU usage, and memory consumption of all running drone autonomy processes.
+
+# 6. Cleanly Terminate All Teleoperation and Simulation Processes
+pkill -f keyboard_teleop
+pkill -f f450_sim
+pkill -f rviz2
+# Description: Gracefully terminates the teleoperation HUD, simulation engine, and RViz2 visualizer.
+```
+
+---
+
+## 14. Bench Testing & Flight Verification Protocol
+
+### Step 1: Pre-Power Hardware Inspection
+1. **Confirm all 4 propellers are removed from the drone frame.**
+2. Connect Pixhawk TELEM2 to RPi GPIO Pins 6 (GND), 8 (TXD), and 10 (RXD).
+3. Connect the 3S/4S LiPo battery. ESCs will emit their characteristic musical arming chime.
 
 ### Step 2: One-Click Launch (Terminal 1)
 ```bash
 /home/drone/robox_ws/scripts/start_sim_teleop.sh
 ```
-This automatically starts:
+This automatically initiates:
 - `MicroXRCEAgent` on `/dev/ttyAMA0` @ 921,600 baud.
 - Robot State Publisher and 3D F450 URDF model.
 - 6-DOF Simulation Engine (`f450_sim_engine`).
 - RViz2 3D Digital Twin visualizer.
-- Interactive Keyboard Teleop HUD.
+- Interactive Keyboard Teleop HUD terminal.
 
-### Step 3: Test Flight Controls
+### Step 3: Flight Controls Verification
 - Press **`[P]`**: Verify all 4 motors spin up simultaneously at 30% idle power.
 - Press **`[SPACE]`**: Auto-takeoff engages; simulation drone climbs smoothly to 1.5m hover while physical motors spin.
 - Press **`[W]`** / **`[S]`**: Flies forward / backward with zero horizontal drift.
@@ -465,7 +630,7 @@ This automatically starts:
 
 ---
 
-## 14. Individual Motor Isolation & Diagnostic Suite
+## 15. Individual Motor Isolation & Diagnostic Suite
 
 To test individual motors and verify ESC thresholds independently:
 ```bash
@@ -479,7 +644,27 @@ python3 /home/drone/robox_ws/scripts/diagnose_motors.py
 
 ---
 
-## 15. Intelligent Engineering Q&A Knowledge Base
+## 16. Physical Pre-Flight Checklist & Safety Protocols
+
+Before mounting propellers for actual airborne flight, verify these 3 physical items:
+
+1. **Motor Spin Direction (PX4 Quad X Layout)**:
+   - **Motor 1** (Front-Right): **Counter-Clockwise (CCW)**
+   - **Motor 2** (Rear-Left): **Counter-Clockwise (CCW)**
+   - **Motor 3** (Front-Left): **Clockwise (CW)**
+   - **Motor 4** (Rear-Right): **Clockwise (CW)**
+   *(If any motor spins in the wrong direction, simply swap any two of its three bullet connector wires to reverse it).*
+
+2. **Propeller Placement**:
+   - Attach CW propellers to Motors 3 & 4; CCW propellers to Motors 1 & 2.
+   - Ensure the raised lettering/branding on each propeller faces **UP**.
+
+3. **Safety Reflexes**:
+   - Practice the **`[X]`** key (Emergency Disarm): pressing it immediately cuts motor throttle to $0\%$ and disarms the vehicle.
+
+---
+
+## 17. Intelligent Engineering Q&A Knowledge Base
 
 #### Q1: Why did we use `MicroXRCEAgent` instead of traditional `MAVROS`?
 > **Answer**: `MAVROS` translates MAVLink binary packets to ROS topics, adding computational overhead, latency, and serialization penalties. PX4 1.14 features native micro-XRCE-DDS middleware directly bridging internal uORB topics, reducing CPU load on the Raspberry Pi 4 by over 60%.
@@ -493,9 +678,12 @@ python3 /home/drone/robox_ws/scripts/diagnose_motors.py
 #### Q4: Why must Pin 1 (Red 5V) of TELEM2 remain disconnected?
 > **Answer**: The Pixhawk power module powers the flight controller rail from the LiPo. Connecting Pin 1 to the Raspberry Pi 5V rail (powered by a separate UBEC) creates ground loop currents that damage the flight controller or cause brownouts.
 
+#### Q5: What is the role of `export ROS_DOMAIN_ID=0`?
+> **Answer**: Default Fast-DDS discovery operates on Domain 0. Keeping `ROS_DOMAIN_ID=0` across all shells, the MicroXRCEAgent daemon, and the PX4 parameter `XRCE_DDS_DOM_ID=0` ensures immediate zero-configuration topic discovery.
+
 ---
 
-## 16. Troubleshooting Runbook
+## 18. Troubleshooting Runbook
 
 | Issue / Error | Likely Root Cause | Diagnostic & Resolution Command |
 | :--- | :--- | :--- |
@@ -508,7 +696,7 @@ python3 /home/drone/robox_ws/scripts/diagnose_motors.py
 
 ---
 
-## 17. Quick Start & One-Click Launchers
+## 19. Quick Start & One-Click Launchers
 
 ### Method A: Desktop Shortcut (1-Click)
 Double-click the **F450 Drone Sim & Teleop** icon on the desktop ([`F450_Drone_Sim_Teleop.desktop`](file:///home/drone/Desktop/F450_Drone_Sim_Teleop.desktop)).
@@ -520,7 +708,7 @@ Double-click the **F450 Drone Sim & Teleop** icon on the desktop ([`F450_Drone_S
 
 ---
 
-## 18. License & Author
+## 20. License, Copyright & Authorship
 
 Copyright (c) 2025-2026 **Naman Harshwal**. All Rights Reserved.  
 Licensed under the Apache License, Version 2.0 (the "License"). You may obtain a copy of the License at:  
