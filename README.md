@@ -464,6 +464,7 @@ robox_ws/
 │       ├── package.xml
 │       └── setup.py
 ├── scripts/
+│   ├── test_all_movements.py      # Automated 6-DOF Flight Movement & Multi-Motor Suite
 │   ├── start_sim_teleop.sh        # Complete 1-Click Launch: Agent + Sim + Teleop HUD
 │   ├── diagnose_motors.py         # Interactive Individual Motor & ESC Diagnostic Suite
 │   ├── start_agent.sh             # Dedicated MicroXRCEAgent Launcher
@@ -552,20 +553,25 @@ ros2 daemon start
 ### D. Motor Diagnostic & Bench Testing Commands
 
 ```bash
-# 1. Interactive 4-Motor Isolation & ESC Threshold Diagnostic Suite
+# 1. Automated 6-DOF Movement & Multi-Motor Verification Suite
+python3 /home/drone/robox_ws/scripts/test_all_movements.py
+# Description: Automated flight sequence exercising all 6-DOF movements (Climb UP, Pitch Forward/Back,
+# Roll Left/Right, Yaw Turn, Descend, Disarm) while logging live motor torque differential responses.
+
+# 2. Interactive 4-Motor Isolation & ESC Threshold Diagnostic Suite
 python3 /home/drone/robox_ws/scripts/diagnose_motors.py
 # Description: Sequentially pulses Motor 1 (FR), Motor 2 (RL), Motor 3 (FL), and Motor 4 (RR)
 # at 25% power for 2 seconds each, then pulses all 4 together at 30% to verify ESC startup thresholds.
 
-# 2. Sequential Motor Rotation Test (MAVLink Cmd 209)
+# 3. Sequential Motor Rotation Test (MAVLink Cmd 209)
 ros2 run f450_brain direct_sequence
 # Description: Pulses each motor channel at 15% throttle for 3 seconds sequentially without arming.
 
-# 3. Attitude Tilt 4-Corner Motor Verification
+# 4. Attitude Tilt 4-Corner Motor Verification
 ros2 run f450_brain verify_motors
 # Description: Force-arms the vehicle and commands 4 sequential 30° roll/pitch tilts to verify mixer response.
 
-# 4. Autonomous 10-Second Offboard Thrust Test
+# 5. Autonomous 10-Second Offboard Thrust Test
 ros2 run f450_brain commander
 # Description: Streams 50Hz Offboard heartbeats, force-arms, holds 30% upward thrust for 10s, and disarms safely.
 ```
