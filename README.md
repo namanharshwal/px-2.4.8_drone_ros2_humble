@@ -41,7 +41,7 @@
 11. [The 10-Month Engineering Retrospective (7 Detailed Case Studies)](#11-the-10-month-engineering-retrospective-7-detailed-case-studies)
 12. [ROS 2 Workspace Architecture & Node Reference](#12-ros-2-workspace-architecture--node-reference)
 13. [Comprehensive Command Reference Manual (Every Command with Descriptions)](#13-comprehensive-command-reference-manual-every-command-with-descriptions)
-14. [Bench Testing & Flight Verification Protocol](#14-bench-testing--flight-verification-protocol)
+14. [Terminal-by-Terminal Execution Sequence for Full System Control](#14-terminal-by-terminal-execution-sequence-for-full-system-control)
 15. [Individual Motor Isolation & Diagnostic Suite](#15-individual-motor-isolation--diagnostic-suite)
 16. [Physical Pre-Flight Checklist & Safety Protocols](#16-physical-pre-flight-checklist--safety-protocols)
 17. [Intelligent Engineering Q&A Knowledge Base](#17-intelligent-engineering-qa-knowledge-base)
@@ -610,29 +610,160 @@ pkill -f rviz2
 
 ---
 
-## 14. Bench Testing & Flight Verification Protocol
+## 14. Terminal-by-Terminal Execution Sequence for Full System Control
+
+This section outlines the exact sequence of commands for controlling the real drone hardware and 3D simulation using separate terminal sessions (for complete visibility, modular debugging, and flight monitoring).
+
+> [!IMPORTANT]
+> **Execution Order is Critical:**
+> 1. **Terminal 1** establishes the hardware serial link with Pixhawk uORB topics.
+> 2. **Terminal 2** brings up the 3D URDF robot description, simulation physics engine, and RViz2 visualizer.
+> 3. **Terminal 3** launches the interactive keyboard teleoperation HUD to control both worlds.
+> 4. **Terminal 4 (Optional)** allows real-time telemetry streaming and motor testing.
+
+---
 
 ### Step 1: Pre-Power Hardware Inspection
 1. **Confirm all 4 propellers are removed from the drone frame.**
 2. Connect Pixhawk TELEM2 to RPi GPIO Pins 6 (GND), 8 (TXD), and 10 (RXD).
 3. Connect the 3S/4S LiPo battery. ESCs will emit their characteristic musical arming chime.
 
-### Step 2: One-Click Launch (Terminal 1)
+---
+
+### Terminal 1: Hardware Micro-XRCE-DDS Serial Bridge
+**Purpose:** Opens the physical UART0 bus `/dev/ttyAMA0` at 921,600 baud and establishes an active DDS session with the Pixhawk 2.4.8 microcontroller.
+
+```bash
+# 1. Grant read/write permissions to serial port
+sudo chmod 666 /dev/ttyAMA0
+
+# 2. Source ROS 2 environment & set Domain ID
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=0
+
+# 3. Launch MicroXRCEAgent
+/usr/local/bin/MicroXRCEAgent serial --dev /dev/ttyAMA0 -b 921600 -v 4
+```
+
+**Expected Terminal 1 Output:**
+```text
+[1793503013.515129] info | TermiosAgentLinux.cpp | init | running... | fd: 4
+[1793503013.519875] info | Root.cpp | set_verbose_level | logger setup | verbose_level: 4
+[1793503014.214050] info | Session.cpp | create_session | [Session] Session established with client key: 0x...
+```
+*Verification:* If you see `Session established`, the hardware link is 100% active. Leave this terminal running.
+
+---
+
+### Terminal 2: 3D Simulation Engine & RViz2 Digital Twin
+**Purpose:** Loads the F450 URDF robot model, starts the 20Hz 6-DOF simulation engine (`f450_sim.py`), broadcasts the dynamic TF2 tree (`map` $\rightarrow$ `odom` $\rightarrow$ `base_footprint`), and launches RViz2.
+
+```bash
+# 1. Source ROS 2 and local workspace
+source /opt/ros/humble/setup.bash
+source /home/drone/robox_ws/install/setup.bash
+
+# 2. Set Domain ID and active X11 Display
+export ROS_DOMAIN_ID=0
+export DISPLAY=:1.0
+
+# 3. Launch Simulation & Visualizer
+ros2 launch f450_brain f450_sim_teleop.launch.py
+```
+
+**Expected Terminal 2 Output:**
+```text
+[robot_state_publisher-1] [INFO] got segment pixhawk, motor_1, motor_2, motor_3, motor_4, top_plate...
+[f450_sim-2] [INFO] F450 3D Digital Twin Simulation Engine active at 20Hz.
+[rviz2-3] [INFO] OpenGl version: 4.5 (GLSL 4.5)
+```
+*Verification:* The RViz2 GUI window will appear on your desktop showing the 3D F450 drone resting on the ground grid. Leave this terminal running.
+
+---
+
+### Terminal 3: Interactive Keyboard Teleoperation & Avionics HUD
+**Purpose:** Provides the pilot flight controls. Captures keystrokes, triggers auto-arming, maintains a 50Hz Offboard heartbeat, aligns attitude with physical IMU, and commands both real motors and the simulation twin simultaneously.
+
+```bash
+# 1. Source ROS 2 and local workspace
+source /opt/ros/humble/setup.bash
+source /home/drone/robox_ws/install/setup.bash
+export ROS_DOMAIN_ID=0
+
+# 2. Launch Interactive Teleop HUD
+ros2 run f450_brain keyboard_teleop
+```
+
+**Expected Terminal 3 Output:**
+```text
+╔══════════════════════════════════════════════════════════════════════════╗
+║              F450 DRONE HYBRID KEYBOARD TELEOP CONTROLLER                ║
+║           Author: Naman Harshwal | ROS 2 Humble & PX4 2.4.8              ║
+╠══════════════════════════════════════════════════════════════════════════╣
+║                                                                          ║
+║   [SPACE] : AUTO-TAKEOFF (to 1.5m) / HOVER LEVEL                         ║
+║   [I] or [UP ARROW]   : CLIMB UPWARDS (Throttle +5% Power)               ║
+║   [K] or [DOWN ARROW] : DESCEND DOWNWARDS (Throttle -5% Power)           ║
+║   [W] : Fly Forward   [S] : Fly Backward                                 ║
+║   [A] : Fly Left      [D] : Fly Right                                    ║
+║   [J] : Turn Left     [L] : Turn Right (Yaw Heading)                     ║
+║                                                                          ║
+║   [P] : ARM Drone (30% Idle Motors)   [M] : Motor Pulse Test (4 ESCs)    ║
+║   [X] : EMERGENCY DISARM (STOP)       [Q] : Land & Exit Teleop           ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+ [FLIGHT] Alt:  0.0m | Throttle: 30% | Pitch:  +0.0° | Roll:  +0.0° | Motors: ARMED (SPINNING)  | Mode: OFFBOARD
+```
+*Pilot Flight Actions:*
+- Press **`[SPACE]`**: Auto-takeoff to 1.5m hover (all 4 physical motors spin synchronously; sim ascends).
+- Press **`[W]`** / **`[S]`**: Fly forward / backward.
+- Press **`[A]`** / **`[D]`**: Roll left / right.
+- Press **`[I]`** / **`[K]`**: Climb / descend.
+- Press **`[X]`**: Instantly disarm and cut all motors.
+
+---
+
+### Terminal 4: Flight Telemetry Monitoring & Diagnostics (Optional)
+**Purpose:** Inspect live avionics and verify hardware telemetry streams while flying.
+
+```bash
+source /opt/ros/humble/setup.bash
+source /home/drone/robox_ws/install/setup.bash
+export ROS_DOMAIN_ID=0
+
+# Option A: Echo live vehicle status (Arming state, battery health, safety switch)
+ros2 topic echo /fmu/out/vehicle_status --once
+
+# Option B: Echo physical IMU attitude quaternion (Roll, Pitch, Yaw)
+ros2 topic echo /fmu/out/vehicle_attitude --once
+
+# Option C: Echo simulation 3D Odometry & coordinates (X, Y, Z)
+ros2 topic echo /f450/odom --once
+
+# Option D: Run automated 6-DOF movement test sequence
+python3 /home/drone/robox_ws/scripts/test_all_movements.py
+
+# Option E: Run individual motor isolation test (Motors 1 to 4)
+python3 /home/drone/robox_ws/scripts/diagnose_motors.py
+```
+
+---
+
+### Clean Shutdown Protocol (Terminal-by-Terminal)
+When testing is complete, terminate sessions in reverse order:
+1. **In Terminal 3**: Press **`[X]`** (Emergency Disarm) to cut motors, then press **`[Q]`** (or `Ctrl+C`) to exit teleop.
+2. **In Terminal 2**: Press `Ctrl+C` to terminate RViz2 and `f450_sim`.
+3. **In Terminal 1**: Press `Ctrl+C` to close the serial agent.
+
+---
+
+### Alternative: Automated 1-Click Launch (All Terminals in One)
+If you prefer not to manage individual terminals, run the master script:
 ```bash
 /home/drone/robox_ws/scripts/start_sim_teleop.sh
 ```
-This automatically initiates:
-- `MicroXRCEAgent` on `/dev/ttyAMA0` @ 921,600 baud.
-- Robot State Publisher and 3D F450 URDF model.
-- 6-DOF Simulation Engine (`f450_sim_engine`).
-- RViz2 3D Digital Twin visualizer.
-- Interactive Keyboard Teleop HUD terminal.
-
-### Step 3: Flight Controls Verification
-- Press **`[P]`**: Verify all 4 motors spin up simultaneously at 30% idle power.
-- Press **`[SPACE]`**: Auto-takeoff engages; simulation drone climbs smoothly to 1.5m hover while physical motors spin.
-- Press **`[W]`** / **`[S]`**: Flies forward / backward with zero horizontal drift.
-- Press **`[X]`**: Emergency disarm immediately cuts all motors.
+Or double-click the **F450 Drone Sim & Teleop** icon on your Desktop ([`F450_Drone_Sim_Teleop.desktop`](file:///home/drone/Desktop/F450_Drone_Sim_Teleop.desktop)). This automatically executes Terminals 1, 2, and 3 in a unified session.
 
 ---
 

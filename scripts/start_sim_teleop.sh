@@ -20,6 +20,7 @@
 source /opt/ros/humble/setup.bash
 source /home/drone/robox_ws/install/setup.bash
 export ROS_DOMAIN_ID=0
+export DISPLAY="${DISPLAY:-:1.0}"
 
 echo "========================================================================"
 echo "    STARTING F450 DRONE HYBRID SIMULATION & HARDWARE TELEOPERATION"
