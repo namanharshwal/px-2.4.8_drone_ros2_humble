@@ -51,6 +51,7 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from px4_msgs.msg import (
     OffboardControlMode,
+    VehicleAttitude,
     VehicleAttitudeSetpoint,
     VehicleCommand,
     VehicleStatus
@@ -115,6 +116,7 @@ class KeyboardTeleop(Node):
 
         # Telemetry Subscribers
         self.create_subscription(VehicleStatus, '/fmu/out/vehicle_status', self.status_cb, px4_qos)
+        self.create_subscription(VehicleAttitude, '/fmu/out/vehicle_attitude', self.attitude_cb, px4_qos)
         self.create_subscription(Odometry, '/f450/odom', self.odom_cb, std_qos)
 
         # Control States
@@ -129,6 +131,8 @@ class KeyboardTeleop(Node):
         self.nav_state = 0
         self.mode_str = "STANDBY"
         self.sim_altitude = 0.0
+        self.hw_attitude_available = False
+        self.hw_quat = [1.0, 0.0, 0.0, 0.0]
 
         # Dedicated 50Hz Offboard & Attitude Stream (20ms interval)
         self.stream_timer = self.create_timer(0.02, self.offboard_stream_loop)
@@ -145,6 +149,10 @@ class KeyboardTeleop(Node):
             self.mode_str = "HOLD"
         else:
             self.mode_str = f"MODE_{msg.nav_state}"
+
+    def attitude_cb(self, msg: VehicleAttitude):
+        self.hw_attitude_available = True
+        self.hw_quat = [float(msg.q[0]), float(msg.q[1]), float(msg.q[2]), float(msg.q[3])]
 
     def odom_cb(self, msg: Odometry):
         self.sim_altitude = float(msg.pose.pose.position.z)
@@ -204,17 +212,31 @@ class KeyboardTeleop(Node):
 
         # 2. Attitude & Motor Thrust Setpoint to PX4
         att_msg = VehicleAttitudeSetpoint()
-        q = euler_to_quaternion(self.roll, -self.pitch, 0.0)
-        att_msg.q_d = q
-
         active_thrust = (self.is_armed_commanded or self.hw_armed or self.throttle > 0.05)
+
+        # Grounded idle check (bench / arming state)
+        # Prevents attitude PID integral windup on uneven surfaces so all 4 motors spin at 100% identical speed!
+        is_grounded = (self.sim_altitude <= 0.05 and self.throttle <= 0.32 and abs(self.pitch) < 0.05 and abs(self.roll) < 0.05)
+
+        if is_grounded:
+            att_msg.reset_integral = True
+            if self.hw_attitude_available:
+                att_msg.q_d = self.hw_quat
+            else:
+                att_msg.q_d = [1.0, 0.0, 0.0, 0.0]
+            att_msg.yaw_sp_move_rate = 0.0
+        else:
+            att_msg.reset_integral = False
+            q = euler_to_quaternion(self.roll, -self.pitch, 0.0)
+            att_msg.q_d = q
+            att_msg.yaw_sp_move_rate = float(self.yaw_rate)
+
         if active_thrust and self.throttle >= 0.20:
             eff_throttle = max(0.30, min(0.60, self.throttle))
             att_msg.thrust_body = [0.0, 0.0, -float(eff_throttle)]
         else:
             att_msg.thrust_body = [0.0, 0.0, 0.0]
 
-        att_msg.yaw_sp_move_rate = float(self.yaw_rate)
         att_msg.timestamp = now_us
         self.att_pub.publish(att_msg)
 
