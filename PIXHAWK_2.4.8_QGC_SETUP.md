@@ -350,7 +350,75 @@ ros2 run f450_brain direct_sequence
 
 ---
 
-## 11. Licensing, Copyright & Security
+## 11. u-blox NEO-M8N GPS & External Compass Setup Guide
+
+The **u-blox NEO-M8N** module combines a multi-constellation GNSS receiver (GPS + GLONASS + Galileo + BeiDou) with an onboard high-precision 3-axis magnetometer (QMC5883L / HMC5883L / IST8310) mounted on an elevated 15cm mast.
+
+### 11.1 Dual Cable Port Wiring (Pixhawk 2.4.8)
+The M8N puck connects to two distinct hardware buses on the Pixhawk:
+
+```
+┌─────────────────────────────────┐
+│     u-blox NEO-M8N GPS Puck     │
+│   (GPS Receiver + 3D Compass)   │
+└──────────────┬───┬──────────────┘
+  GPS Cable    │   │   I2C Cable
+  (4-pin/6-pin)│   │   (4-pin)
+               │   │
+               ▼   ▼
+      ┌─────────────────────┐
+      │    PIXHAWK 2.4.8    │
+      │  [GPS]       [I2C]  │
+      └─────────────────────┘
+```
+
+1. **GPS Cable (UART)** $\rightarrow$ **Pixhawk `GPS` Port**:
+   - Transmits multi-GNSS NMEA/UBX satellite ephemeris data at 115,200 baud.
+   - Pinout: Pin 1 (5V VCC), Pin 2 (TX), Pin 3 (RX), Pin 6 (GND).
+2. **Compass Cable (I2C)** $\rightarrow$ **Pixhawk `I2C` Port**:
+   - Transmits raw magnetic field vectors ($B_x, B_y, B_z$) over the shared I2C peripheral bus.
+   - Pinout: Pin 1 (5V VCC), Pin 2 (I2C SCL), Pin 3 (I2C SDA), Pin 4 (GND).
+
+> [!CRITICAL]
+> **PHYSICAL PUCK ALIGNMENT:**  
+> The arrow molded into the plastic top case of the M8N puck must point strictly **FORWARD** (matching the white arrow on the Pixhawk 2.4.8 enclosure). If mounted reversed or angled, the heading will be inverted, causing severe EKF2 divergence or toilet-bowling!
+
+### 11.2 QGroundControl Compass Calibration Protocol
+With the M8N connected to both the `GPS` and `I2C` ports:
+1. Connect Pixhawk to QGroundControl.
+2. Navigate to **Vehicle Setup (Gear Icon) $\rightarrow$ Sensors $\rightarrow$ Compass**.
+3. Notice that QGC automatically detects two compasses:
+   - **Compass 1 (External, Priority: High / 100)**: The elevated M8N mast magnetometer.
+   - **Compass 2 (Internal, Priority: Low / 50)**: The backup magnetometer on the Pixhawk PCB.
+4. Click **Calibrate** and rotate the vehicle smoothly across all 6 orientations (Nose Down, Nose Up, Left Side, Right Side, Level, Back) until all progress indicators turn green.
+5. **Heading Verification**: Place the drone flat on the floor, point the nose to magnetic North, and verify the QGC compass rose reads $0^\circ \pm 3^\circ$. Rotate $90^\circ$ East $\rightarrow$ verify reading is $90^\circ$.
+
+### 11.3 Recommended PX4 Parameters for M8N
+Configure the following parameters in QGroundControl (Parameters tab):
+
+| Parameter Name | Value | Description & Technical Impact |
+| :--- | :---: | :--- |
+| `GPS_1_CONFIG` | `GPS 1` | Assigns the u-blox driver to the primary 6-pin GPS serial port. |
+| `SER_GPS1_BAUD`| `115200` | Sets baud rate to 115,200 for fast 10Hz UBX binary frames. |
+| `GPS_1_PROTOCOL`| `u-blox` | Selects native high-efficiency u-blox binary protocol (UBX). |
+| `EKF2_MAG_TYPE` | `0` | Automatic 3D Magnetometer fusion (mandatory for heading). |
+| `EKF2_GPS_CTRL` | `7` | Fuses GPS horizontal position (1), vertical altitude (2), and 3D velocity (4). |
+| `CAL_MAG0_PRIO` | `100` | Prioritizes the external mast compass over the internal sensor. |
+
+### 11.4 Verification via QGC & ROS 2
+- **In QGroundControl**: Check the top toolbar status. Outdoors in open sky, the satellite icon will turn green, indicating **18 to 24 satellites** with HDOP $< 1.0$. In the MAVLink console, type `gps status` to view active constellations (GPS, GLONASS, Galileo).
+- **In ROS 2 Humble**:
+  ```bash
+  # Echo raw GPS satellite fix telemetry
+  ros2 topic echo /fmu/out/vehicle_gps_position --once
+
+  # Echo fused Cartesian local world position (meters)
+  ros2 topic echo /fmu/out/vehicle_local_position --once
+  ```
+
+---
+
+## 12. Licensing, Copyright & Security
 
 - **Author**: [Naman Harshwal](https://github.com/namanharshwal)
 - **Copyright**: (c) 2025-2026 Naman Harshwal. All Rights Reserved.

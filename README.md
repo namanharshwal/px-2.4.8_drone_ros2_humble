@@ -213,6 +213,38 @@ PX4 uses standard Quad-X actuator mapping:
 
 *Signal Pin Orientation*: On the Pixhawk 2.4.8 output rail, the **Signal** pin is on the bottom (marked `S` or `⎍`), the **5V Power** pin is in the center, and the **Ground** pin is on the top (marked `-`).
 
+### 4.3 u-blox NEO-M8N GPS & External Compass Dual-Port Wiring
+
+The **u-blox NEO-M8N** module combines a high-precision multi-constellation GNSS receiver (GPS + GLONASS + Galileo + BeiDou) with an integrated 3-axis magnetometer (QMC5883L / HMC5883L / IST8310) elevated on a 15cm mast to isolate the compass from high-current ESC and motor electromagnetic interference (EMI).
+
+The M8N puck connects to two distinct hardware ports on the Pixhawk:
+
+```
+┌──────────────────────────────────────────────┐
+│           u-blox NEO-M8N GPS Puck            │
+│  (Multi-GNSS Receiver + 3D Magnetometer)     │
+└──────────────┬────────────────┬──────────────┘
+  GPS Cable    │                │   I2C Cable
+  (4-pin/6-pin)│                │   (4-pin)
+               │                │
+               ▼                ▼
+      ┌──────────────────────────────────┐
+      │          PIXHAWK 2.4.8           │
+      │     [GPS Port]     [I2C Port]    │
+      └──────────────────────────────────┘
+```
+
+1. **GPS Cable (UART)** $\rightarrow$ **Pixhawk `GPS` Port (6-pin JST-GH)**:
+   - Transmits multi-GNSS NMEA/UBX satellite ephemeris data at 115,200 baud.
+   - Pinout: Pin 1 (`VCC 5V`), Pin 2 (`TX` $\rightarrow$ Pixhawk RX), Pin 3 (`RX` $\leftarrow$ Pixhawk TX), Pin 6 (`GND`).
+2. **Compass Cable (I2C)** $\rightarrow$ **Pixhawk `I2C` Port (4-pin JST-GH)**:
+   - Transmits raw magnetic field vectors ($B_x, B_y, B_z$) over the shared I2C peripheral bus.
+   - Pinout: Pin 1 (`VCC 5V`), Pin 2 (`I2C SCL`), Pin 3 (`I2C SDA`), Pin 4 (`GND`).
+
+> [!CRITICAL]
+> **PHYSICAL PUCK ALIGNMENT MANDATE:**  
+> The arrow molded into the top case of the M8N puck must point strictly **FORWARD**, parallel to the white arrow printed on the Pixhawk 2.4.8 top enclosure. If mounted backwards or angled, heading estimation will be inverted, causing severe EKF2 divergence or circular flyaway ("toilet-bowling") in Position Hold mode.
+
 ---
 
 ## 5. Raspberry Pi 4 Operating System & Environment Hardening
@@ -343,6 +375,28 @@ Configure the following parameters in QGroundControl (Parameters tab):
 | `CBRK_SUPPLY_CHK`| `894281` | Circuit Breakers | Bypasses power module voltage lockout when LiPo is under 10.5V on bench. |
 | `COM_ARM_SWISBTN`| `1` (Enabled) | Switch Mapping | Treats physical safety switch as momentary toggle rather than latching switch. |
 | `EKF2_MAG_TYPE` | `0` (Automatic) | Sensor Fusion | Fuses 3D magnetometer data so EKF can estimate vehicle attitude (Yaw). |
+
+### 7.4 u-blox NEO-M8N GNSS & External Compass Configuration Protocol
+
+#### A. Compass Priority & Dual-Sensor Detection
+With the M8N connected to both the `GPS` (UART) and `I2C` (Magnetometer) ports:
+1. Open QGroundControl and navigate to **Vehicle Setup (Gear Icon) → Sensors → Compass**.
+2. PX4 automatically registers two magnetometers:
+   - **Compass 1 (External, Priority: High / 100)**: The elevated M8N mast magnetometer (primary heading source, isolated from motor EMI).
+   - **Compass 2 (Internal, Priority: Low / 50)**: The backup magnetometer on the Pixhawk PCB.
+3. Click **Calibrate** and rotate the vehicle smoothly across all 6 orientations (Nose Down, Nose Up, Left Side, Right Side, Level, Back) until all progress indicators turn green.
+4. **Heading Alignment Test**: Place drone flat facing true magnetic North (using a handheld compass or phone). Verify QGC compass heading reads $0^\circ \pm 3^\circ$. Rotate $90^\circ$ East $\rightarrow$ verify reading is $90^\circ \pm 3^\circ$.
+
+#### B. M8N GPS PX4 Parameter Configuration Matrix
+
+| Parameter | Configured Value | Category | Purpose & Technical Impact |
+| :--- | :---: | :--- | :--- |
+| `GPS_1_CONFIG` | `GPS 1` | GPS Driver | Binds the u-blox GPS driver to the primary 6-pin GPS serial port. |
+| `SER_GPS1_BAUD`| `115200` | Serial Baud Rate | High-speed baud rate for 10Hz UBX binary frames. |
+| `GPS_1_PROTOCOL`| `u-blox` | GNSS Protocol | Selects native high-efficiency u-blox binary protocol (UBX). |
+| `EKF2_MAG_TYPE` | `0` (Automatic) | Heading Fusion | Automatic 3D Magnetometer fusion (mandatory for heading). |
+| `EKF2_GPS_CTRL` | `7` | State Estimation | Fuses GPS horizontal position (1), vertical altitude (2), and 3D velocity (4). |
+| `CAL_MAG0_PRIO` | `100` | Sensor Priority | Prioritizes the external mast compass over the internal PCB sensor. |
 
 ---
 
@@ -548,6 +602,14 @@ ros2 topic hz /fmu/in/vehicle_attitude_setpoint
 ros2 daemon status
 ros2 daemon start
 # Description: Checks status of the ROS 2 discovery daemon and restarts it if topics fail to list.
+
+# 7. Echo Raw GPS Satellite Fix Telemetry
+ros2 topic echo /fmu/out/vehicle_gps_position --once
+# Description: Displays raw satellite count (satellites_used), fix type (3=3D Fix), HDOP, latitude, longitude, and altitude from the M8N receiver.
+
+# 8. Echo Fused Cartesian World Position & Velocity
+ros2 topic echo /fmu/out/vehicle_local_position --once
+# Description: Displays the EKF2 estimated local Cartesian position (x, y, z in meters) and velocity (vx, vy, vz in m/s) relative to the takeoff origin.
 ```
 
 ### D. Motor Diagnostic & Bench Testing Commands
